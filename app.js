@@ -28,7 +28,7 @@ const els = {
   todayLabel: document.querySelector("#todayLabel"),
   totalBalance: document.querySelector("#totalBalance"),
   monthSpend: document.querySelector("#monthSpend"),
-  topCategory: document.querySelector("#topCategory"),
+  liabilitiesTotal: document.querySelector("#liabilitiesTotal"),
   dashboardAccounts: document.querySelector("#dashboardAccounts"),
   dashboardTabContent: document.querySelector("#dashboardTabContent"),
   accountsList: document.querySelector("#accountsList"),
@@ -249,17 +249,17 @@ function renderMetrics() {
   const expenses = userExpenses();
   const mainCurrency = accounts[0]?.currency || "USD";
   const total = accounts.reduce((sum, account) => sum + convertCurrency(account.balance, account.currency, mainCurrency), 0);
+  const liabilities = accounts.reduce((sum, account) => sum + liabilityAmountIn(account, mainCurrency), 0);
   const month = new Date().toISOString().slice(0, 7);
   const monthExpenses = expenses.filter((expense) => expense.date.slice(0, 7) === month);
   const monthSpend = monthExpenses.reduce((sum, expense) => {
     const account = state.accounts.find((item) => item.id === expense.accountId);
     return sum + convertCurrency(expense.amount, account?.currency || mainCurrency, mainCurrency);
   }, 0);
-  const top = topCategoryFrom(expenses, mainCurrency);
 
   els.totalBalance.textContent = formatMoney(total, mainCurrency);
   els.monthSpend.textContent = formatMoney(monthSpend, mainCurrency);
-  els.topCategory.textContent = top?.category || "None";
+  els.liabilitiesTotal.textContent = formatMoney(liabilities, mainCurrency);
 }
 
 function renderDashboardFrame() {
@@ -314,7 +314,7 @@ function renderAccounts() {
   els.expenseAccount.innerHTML = accounts.map((account) => `<option value="${account.id}">${account.icon} ${account.name}</option>`).join("");
   els.expenseFilter.innerHTML = `<option value="all">All accounts</option>${accounts.map((account) => `<option value="${account.id}">${account.name}</option>`).join("")}`;
 
-  const simpleRows = accounts.map(accountRow).join("");
+  const simpleRows = accounts.slice(0, 3).map(accountRow).join("");
   els.dashboardAccounts.innerHTML = simpleRows || emptyHtml("Create your first account.");
   els.accountsList.innerHTML = accounts.map((account) => accountRow(account, true)).join("") || emptyHtml("No financial accounts yet.");
 }
@@ -341,7 +341,7 @@ function renderExpenses() {
     .filter((expense) => selectedFilter === "all" || expense.accountId === selectedFilter)
     .sort((a, b) => b.date.localeCompare(a.date));
 
-  els.recentExpenses.innerHTML = expenses.slice(0, 5).map(expenseRow).join("") || emptyHtml("Add an expense to begin tracking.");
+  els.recentExpenses.innerHTML = expenses.slice(0, 3).map(expenseRow).join("") || emptyHtml("Add an expense to begin tracking.");
   els.expenseHistory.innerHTML = expenses.map(expenseRow).join("") || emptyHtml("No expenses match this account.");
   document.querySelector("#expenseCategory").innerHTML = categories.map((category) => `<option>${category}</option>`).join("");
 }
@@ -388,6 +388,12 @@ function revenueAmountIn(revenue, targetCurrency) {
   return convertCurrency(revenue.amount, revenue.currency || targetCurrency, targetCurrency);
 }
 
+function liabilityAmountIn(account, targetCurrency) {
+  const balance = Number(account.balance || 0);
+  const owed = account.type === "Credit card" ? Math.abs(balance) : Math.max(0, -balance);
+  return convertCurrency(owed, account.currency || targetCurrency, targetCurrency);
+}
+
 function recentItems(items, days) {
   const start = new Date();
   start.setHours(0, 0, 0, 0);
@@ -418,10 +424,6 @@ function revenueCategoryTotals(revenues, targetCurrency = userAccounts()[0]?.cur
   return [...totals.entries()]
     .map(([category, total]) => ({ category, total }))
     .sort((a, b) => b.total - a.total);
-}
-
-function topCategoryFrom(expenses, targetCurrency) {
-  return categoryTotals(expenses, targetCurrency)[0];
 }
 
 function generateInsight(expenses, accounts) {
@@ -554,11 +556,6 @@ document.querySelectorAll(".nav-item").forEach((button) => {
     activeView = button.dataset.view;
     renderAll();
   });
-});
-
-document.querySelector("#quickExpenseButton").addEventListener("click", () => {
-  activeView = "expenses";
-  renderAll();
 });
 
 document.querySelector("#newAccountShortcut").addEventListener("click", () => {
