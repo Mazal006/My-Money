@@ -20,6 +20,7 @@ const PASSWORD_HASH_ITERATIONS = 210000;
 
 const state = loadState();
 const authChallenges = new Map();
+let pendingAuth = null;
 let activeUserId = state.sessionUserId;
 let activeView = "dashboard";
 
@@ -373,12 +374,72 @@ async function migratePasswordIfNeeded(user, password) {
 }
 
 function setAuthTab(tabName) {
+  pendingAuth = null;
   document.querySelectorAll("[data-auth-tab]").forEach((tab) => {
     tab.classList.toggle("active", tab.dataset.authTab === tabName);
   });
   document.querySelector("#signInForm").classList.toggle("hidden", tabName !== "signin");
   document.querySelector("#signUpForm").classList.toggle("hidden", tabName !== "signup");
   document.querySelector("#resetForm").classList.toggle("hidden", tabName !== "reset");
+  document.querySelector("#verifyForm").classList.add("hidden");
+  document.querySelector(".auth-tabs").classList.remove("hidden");
+}
+
+function showVerificationStep(authContext) {
+  pendingAuth = authContext;
+  document.querySelector(".auth-tabs").classList.add("hidden");
+  document.querySelector("#signInForm").classList.add("hidden");
+  document.querySelector("#signUpForm").classList.add("hidden");
+  document.querySelector("#resetForm").classList.add("hidden");
+  document.querySelector("#verifyForm").classList.remove("hidden");
+  document.querySelector("#verifyForm").reset();
+  document.querySelector("#verifyForm").elements.code.focus();
+}
+
+function cancelVerificationStep() {
+  const tabName = pendingAuth?.purpose === "signup" ? "signup" : "signin";
+  pendingAuth = null;
+  setAuthTab(tabName);
+}
+
+async function completePendingAuth(code) {
+  if (!pendingAuth) {
+    showNotice("Start sign in or sign up again.");
+    return;
+  }
+
+  if (!(await verifyAuthCode(pendingAuth.purpose, pendingAuth.email, code))) return;
+
+  if (pendingAuth.purpose === "signup") {
+    const user = {
+      id: uid("user"),
+      name: pendingAuth.name,
+      email: pendingAuth.email,
+      ...pendingAuth.passwordRecord
+    };
+    state.users.push(user);
+    activeUserId = user.id;
+    seedFirstAccount(user.id);
+  }
+
+  if (pendingAuth.purpose === "signin") {
+    const user = state.users.find((item) => item.id === pendingAuth.userId);
+    if (!user) {
+      pendingAuth = null;
+      setAuthTab("signin");
+      showNotice("Sign in could not be completed.");
+      return;
+    }
+    if (pendingAuth.migrationPassword) await migratePasswordIfNeeded(user, pendingAuth.migrationPassword);
+    activeUserId = user.id;
+  }
+
+  pendingAuth = null;
+  saveState();
+  document.querySelector("#signInForm").reset();
+  document.querySelector("#signUpForm").reset();
+  document.querySelector("#verifyForm").reset();
+  renderShell();
 }
 
 function renderShell() {
@@ -660,32 +721,6 @@ document.querySelectorAll("[data-auth-tab]").forEach((button) => {
   button.addEventListener("click", () => setAuthTab(button.dataset.authTab));
 });
 
-document.querySelector("#signInCodeButton").addEventListener("click", async () => {
-  const form = document.querySelector("#signInForm");
-  const data = new FormData(form);
-  const email = data.get("email").toLowerCase().trim();
-  const user = state.users.find((item) => item.email === email);
-  const validPassword = user ? await passwordMatches(user, data.get("password")) : false;
-
-  if (validPassword) {
-    await sendAuthCode("signin", email);
-    return;
-  }
-
-  showNotice("If those details are correct, a verification code will be sent.");
-});
-
-document.querySelector("#sendCodeButton").addEventListener("click", async () => {
-  const form = document.querySelector("#signUpForm");
-  const data = new FormData(form);
-  const email = data.get("email").toLowerCase().trim();
-  if (state.users.some((user) => user.email === email)) {
-    showNotice("An account already exists for this email.");
-    return;
-  }
-  await sendAuthCode("signup", email, { name: data.get("name").trim() });
-});
-
 document.querySelector("#resetCodeButton").addEventListener("click", async () => {
   const form = document.querySelector("#resetForm");
   const data = new FormData(form);
@@ -697,26 +732,34 @@ document.querySelector("#resetCodeButton").addEventListener("click", async () =>
   showNotice("If an account exists, a password reset code will be sent.");
 });
 
+document.querySelector("#resendCodeButton").addEventListener("click", async () => {
+  if (!pendingAuth) return showNotice("Start sign in or sign up again.");
+  await sendAuthCode(pendingAuth.purpose, pendingAuth.email, { name: pendingAuth.name || "" });
+});
+
+document.querySelector("#cancelVerifyButton").addEventListener("click", cancelVerificationStep);
+
+document.querySelector("#verifyForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const form = new FormData(event.currentTarget);
+  await completePendingAuth(form.get("code"));
+});
+
 document.querySelector("#signUpForm").addEventListener("submit", async (event) => {
   event.preventDefault();
   const form = new FormData(event.currentTarget);
   const email = form.get("email").toLowerCase().trim();
   if (state.users.some((user) => user.email === email)) return showNotice("An account already exists for this email.");
-  if (!(await verifyAuthCode("signup", email, form.get("code")))) return;
   const passwordRecord = await createPasswordRecord(form.get("password"));
 
-  const user = {
-    id: uid("user"),
-    name: form.get("name").trim(),
-    email,
-    ...passwordRecord
-  };
-  state.users.push(user);
-  activeUserId = user.id;
-  seedFirstAccount(user.id);
-  saveState();
-  event.currentTarget.reset();
-  renderShell();
+  if (await sendAuthCode("signup", email, { name: form.get("name").trim() })) {
+    showVerificationStep({
+      purpose: "signup",
+      email,
+      name: form.get("name").trim(),
+      passwordRecord
+    });
+  }
 });
 
 document.querySelector("#signInForm").addEventListener("submit", async (event) => {
@@ -725,12 +768,14 @@ document.querySelector("#signInForm").addEventListener("submit", async (event) =
   const email = form.get("email").toLowerCase().trim();
   const user = state.users.find((item) => item.email === email);
   if (!user || !(await passwordMatches(user, form.get("password")))) return showNotice("Email, password, or verification code is incorrect.");
-  if (!(await verifyAuthCode("signin", email, form.get("code")))) return;
-  await migratePasswordIfNeeded(user, form.get("password"));
-  activeUserId = user.id;
-  saveState();
-  event.currentTarget.reset();
-  renderShell();
+  if (await sendAuthCode("signin", email)) {
+    showVerificationStep({
+      purpose: "signin",
+      email,
+      userId: user.id,
+      migrationPassword: user.passwordHash ? null : form.get("password")
+    });
+  }
 });
 
 document.querySelector("#resetForm").addEventListener("submit", async (event) => {

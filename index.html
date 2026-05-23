@@ -36,14 +36,7 @@
               Password
               <input type="password" name="password" autocomplete="current-password" enterkeyhint="next" required />
             </label>
-            <label>
-              Verification code
-              <div class="inline-field">
-                <input type="text" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]*" maxlength="6" placeholder="000000" enterkeyhint="done" required />
-                <button type="button" class="secondary-action" id="signInCodeButton">Send</button>
-              </div>
-            </label>
-            <button class="primary-action" type="submit">Sign in</button>
+            <button class="primary-action" type="submit">Continue</button>
           </form>
 
           <form id="signUpForm" class="auth-form hidden">
@@ -58,13 +51,6 @@
             <label>
               Password
               <input type="password" name="password" autocomplete="new-password" minlength="8" enterkeyhint="next" required />
-            </label>
-            <label>
-              Verification code
-              <div class="inline-field">
-                <input type="text" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]*" maxlength="6" placeholder="000000" enterkeyhint="done" required />
-                <button type="button" class="secondary-action" id="sendCodeButton">Send</button>
-              </div>
             </label>
             <button class="primary-action" type="submit">Create account</button>
           </form>
@@ -86,6 +72,20 @@
               </div>
             </label>
             <button class="primary-action" type="submit">Change password</button>
+          </form>
+
+          <form id="verifyForm" class="auth-form hidden">
+            <label>
+              Verification code
+              <div class="inline-field">
+                <input type="text" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]*" maxlength="6" placeholder="000000" enterkeyhint="done" required />
+                <button type="button" class="secondary-action" id="resendCodeButton">Resend</button>
+              </div>
+            </label>
+            <div class="form-actions">
+              <button class="primary-action" type="submit">Verify</button>
+              <button class="secondary-action" id="cancelVerifyButton" type="button">Back</button>
+            </div>
           </form>
         </div>
       </section>
