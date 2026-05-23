@@ -119,7 +119,7 @@ function renderAll() {
 
 function renderNavigation() {
   const titles = {
-    dashboard: "Overview",
+    dashboard: "Dashboard",
     accounts: "Accounts",
     expenses: "Expenses",
     analytics: "AI analytics"
