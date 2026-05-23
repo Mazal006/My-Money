@@ -30,11 +30,18 @@
           <form id="signInForm" class="auth-form">
             <label>
               Email
-              <input type="email" name="email" autocomplete="email" required />
+              <input type="email" name="email" autocomplete="email" enterkeyhint="next" required />
             </label>
             <label>
               Password
-              <input type="password" name="password" autocomplete="current-password" required />
+              <input type="password" name="password" autocomplete="current-password" enterkeyhint="next" required />
+            </label>
+            <label>
+              Verification code
+              <div class="inline-field">
+                <input type="text" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]*" maxlength="6" placeholder="000000" enterkeyhint="done" required />
+                <button type="button" class="secondary-action" id="signInCodeButton">Send</button>
+              </div>
             </label>
             <button class="primary-action" type="submit">Sign in</button>
           </form>
@@ -42,20 +49,20 @@
           <form id="signUpForm" class="auth-form hidden">
             <label>
               Full name
-              <input type="text" name="name" autocomplete="name" required />
+              <input type="text" name="name" autocomplete="name" enterkeyhint="next" required />
             </label>
             <label>
               Email
-              <input type="email" name="email" autocomplete="email" required />
+              <input type="email" name="email" autocomplete="email" enterkeyhint="next" required />
             </label>
             <label>
               Password
-              <input type="password" name="password" autocomplete="new-password" minlength="6" required />
+              <input type="password" name="password" autocomplete="new-password" minlength="8" enterkeyhint="next" required />
             </label>
             <label>
               Verification code
               <div class="inline-field">
-                <input type="text" name="code" inputmode="numeric" placeholder="000000" />
+                <input type="text" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]*" maxlength="6" placeholder="000000" enterkeyhint="done" required />
                 <button type="button" class="secondary-action" id="sendCodeButton">Send</button>
               </div>
             </label>
@@ -65,16 +72,16 @@
           <form id="resetForm" class="auth-form hidden">
             <label>
               Email
-              <input type="email" name="email" autocomplete="email" required />
+              <input type="email" name="email" autocomplete="email" enterkeyhint="next" required />
             </label>
             <label>
               New password
-              <input type="password" name="password" autocomplete="new-password" minlength="6" required />
+              <input type="password" name="password" autocomplete="new-password" minlength="8" enterkeyhint="next" required />
             </label>
             <label>
               Verification code
               <div class="inline-field">
-                <input type="text" name="code" inputmode="numeric" placeholder="000000" required />
+                <input type="text" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]*" maxlength="6" placeholder="000000" enterkeyhint="done" required />
                 <button type="button" class="secondary-action" id="resetCodeButton">Send</button>
               </div>
             </label>

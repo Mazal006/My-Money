@@ -13,9 +13,13 @@ const icons = ["💳", "🏦", "💵", "🏠", "📈", "🎓", "🚗", "🧾", "
 
 const RATES_URL = "https://open.er-api.com/v6/latest/USD";
 const RATES_CACHE_MS = 12 * 60 * 60 * 1000;
+const AUTH_API_URL = "";
+const AUTH_CODE_TTL_MS = 10 * 60 * 1000;
+const MAX_AUTH_ATTEMPTS = 5;
+const PASSWORD_HASH_ITERATIONS = 210000;
 
 const state = loadState();
-let verificationCode = "";
+const authChallenges = new Map();
 let activeUserId = state.sessionUserId;
 let activeView = "dashboard";
 
@@ -200,6 +204,172 @@ function showNotice(message) {
     els.notice.textContent = "";
     els.authNotice.textContent = "";
   }, 3600);
+}
+
+function authKey(purpose, email) {
+  return `${purpose}:${String(email || "").toLowerCase().trim()}`;
+}
+
+function authApiEnabled() {
+  return Boolean(AUTH_API_URL);
+}
+
+function normalizeCode(code) {
+  return String(code || "").replace(/\D/g, "").slice(0, 6);
+}
+
+function secureCode(length = 6) {
+  const digits = new Uint32Array(length);
+  crypto.getRandomValues(digits);
+  return [...digits].map((value) => String(value % 10)).join("");
+}
+
+function randomBase64(byteLength = 16) {
+  const bytes = new Uint8Array(byteLength);
+  crypto.getRandomValues(bytes);
+  return btoa(String.fromCharCode(...bytes));
+}
+
+async function sendAuthCode(purpose, email, context = {}) {
+  const normalizedEmail = String(email || "").toLowerCase().trim();
+  if (!normalizedEmail) {
+    showNotice("Enter your email address first.");
+    return false;
+  }
+
+  try {
+    if (authApiEnabled()) {
+      const response = await fetch(`${AUTH_API_URL}/auth/challenges`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ purpose, email: normalizedEmail, ...context })
+      });
+      if (!response.ok) throw new Error("Verification code could not be sent.");
+      const data = await response.json();
+      authChallenges.set(authKey(purpose, normalizedEmail), {
+        challengeId: data.challengeId,
+        expiresAt: Date.now() + AUTH_CODE_TTL_MS,
+        attempts: 0
+      });
+    } else {
+      const code = secureCode();
+      authChallenges.set(authKey(purpose, normalizedEmail), {
+        code,
+        expiresAt: Date.now() + AUTH_CODE_TTL_MS,
+        attempts: 0
+      });
+      console.info(`[My Money demo] ${purpose} verification code for ${normalizedEmail}: ${code}`);
+    }
+
+    showNotice("Verification code sent. Check your email.");
+    return true;
+  } catch {
+    showNotice("Verification code could not be sent. Try again shortly.");
+    return false;
+  }
+}
+
+async function verifyAuthCode(purpose, email, code) {
+  const normalizedEmail = String(email || "").toLowerCase().trim();
+  const key = authKey(purpose, normalizedEmail);
+  const challenge = authChallenges.get(key);
+  const normalizedCode = normalizeCode(code);
+
+  if (!challenge || Date.now() > challenge.expiresAt) {
+    showNotice("The verification code expired. Request a new code.");
+    return false;
+  }
+
+  if (challenge.attempts >= MAX_AUTH_ATTEMPTS) {
+    authChallenges.delete(key);
+    showNotice("Too many verification attempts. Request a new code.");
+    return false;
+  }
+
+  challenge.attempts += 1;
+
+  if (authApiEnabled()) {
+    try {
+      const response = await fetch(`${AUTH_API_URL}/auth/challenges/verify`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          purpose,
+          email: normalizedEmail,
+          code: normalizedCode,
+          challengeId: challenge.challengeId
+        })
+      });
+      if (!response.ok) {
+        showNotice("The verification code is incorrect.");
+        return false;
+      }
+    } catch {
+      showNotice("Verification could not be completed. Try again shortly.");
+      return false;
+    }
+  } else if (challenge.code !== normalizedCode) {
+    showNotice("The verification code is incorrect.");
+    return false;
+  }
+
+  authChallenges.delete(key);
+  return true;
+}
+
+function constantTimeEqual(left, right) {
+  const leftValue = String(left || "");
+  const rightValue = String(right || "");
+  if (!leftValue || !rightValue) return false;
+
+  let diff = leftValue.length ^ rightValue.length;
+  const length = Math.max(leftValue.length, rightValue.length);
+
+  for (let index = 0; index < length; index += 1) {
+    diff |= leftValue.charCodeAt(index % leftValue.length) ^ rightValue.charCodeAt(index % rightValue.length);
+  }
+
+  return diff === 0;
+}
+
+async function hashPassword(password, salt) {
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey("raw", encoder.encode(password), "PBKDF2", false, ["deriveBits"]);
+  const bits = await crypto.subtle.deriveBits(
+    {
+      name: "PBKDF2",
+      hash: "SHA-256",
+      salt: encoder.encode(salt),
+      iterations: PASSWORD_HASH_ITERATIONS
+    },
+    key,
+    256
+  );
+  return btoa(String.fromCharCode(...new Uint8Array(bits)));
+}
+
+async function createPasswordRecord(password) {
+  const salt = randomBase64();
+  return {
+    passwordHash: await hashPassword(password, salt),
+    passwordSalt: salt
+  };
+}
+
+async function passwordMatches(user, password) {
+  if (user.passwordHash && user.passwordSalt) {
+    const candidate = await hashPassword(password, user.passwordSalt);
+    return constantTimeEqual(candidate, user.passwordHash);
+  }
+  return user.password === password;
+}
+
+async function migratePasswordIfNeeded(user, password) {
+  if (user.passwordHash && user.passwordSalt) return;
+  Object.assign(user, await createPasswordRecord(password));
+  delete user.password;
 }
 
 function setAuthTab(tabName) {
@@ -490,28 +660,56 @@ document.querySelectorAll("[data-auth-tab]").forEach((button) => {
   button.addEventListener("click", () => setAuthTab(button.dataset.authTab));
 });
 
-document.querySelector("#sendCodeButton").addEventListener("click", () => {
-  verificationCode = String(Math.floor(100000 + Math.random() * 900000));
-  showNotice(`Verification code: ${verificationCode}`);
+document.querySelector("#signInCodeButton").addEventListener("click", async () => {
+  const form = document.querySelector("#signInForm");
+  const data = new FormData(form);
+  const email = data.get("email").toLowerCase().trim();
+  const user = state.users.find((item) => item.email === email);
+  const validPassword = user ? await passwordMatches(user, data.get("password")) : false;
+
+  if (validPassword) {
+    await sendAuthCode("signin", email);
+    return;
+  }
+
+  showNotice("If those details are correct, a verification code will be sent.");
 });
 
-document.querySelector("#resetCodeButton").addEventListener("click", () => {
-  verificationCode = String(Math.floor(100000 + Math.random() * 900000));
-  showNotice(`Password reset code: ${verificationCode}`);
+document.querySelector("#sendCodeButton").addEventListener("click", async () => {
+  const form = document.querySelector("#signUpForm");
+  const data = new FormData(form);
+  const email = data.get("email").toLowerCase().trim();
+  if (state.users.some((user) => user.email === email)) {
+    showNotice("An account already exists for this email.");
+    return;
+  }
+  await sendAuthCode("signup", email, { name: data.get("name").trim() });
 });
 
-document.querySelector("#signUpForm").addEventListener("submit", (event) => {
+document.querySelector("#resetCodeButton").addEventListener("click", async () => {
+  const form = document.querySelector("#resetForm");
+  const data = new FormData(form);
+  const email = data.get("email").toLowerCase().trim();
+  if (state.users.some((user) => user.email === email)) {
+    await sendAuthCode("reset", email);
+    return;
+  }
+  showNotice("If an account exists, a password reset code will be sent.");
+});
+
+document.querySelector("#signUpForm").addEventListener("submit", async (event) => {
   event.preventDefault();
   const form = new FormData(event.currentTarget);
   const email = form.get("email").toLowerCase().trim();
   if (state.users.some((user) => user.email === email)) return showNotice("An account already exists for this email.");
-  if (form.get("code") !== verificationCode) return showNotice("Enter the verification code that was sent.");
+  if (!(await verifyAuthCode("signup", email, form.get("code")))) return;
+  const passwordRecord = await createPasswordRecord(form.get("password"));
 
   const user = {
     id: uid("user"),
     name: form.get("name").trim(),
     email,
-    password: form.get("password")
+    ...passwordRecord
   };
   state.users.push(user);
   activeUserId = user.id;
@@ -521,24 +719,28 @@ document.querySelector("#signUpForm").addEventListener("submit", (event) => {
   renderShell();
 });
 
-document.querySelector("#signInForm").addEventListener("submit", (event) => {
+document.querySelector("#signInForm").addEventListener("submit", async (event) => {
   event.preventDefault();
   const form = new FormData(event.currentTarget);
   const email = form.get("email").toLowerCase().trim();
-  const user = state.users.find((item) => item.email === email && item.password === form.get("password"));
-  if (!user) return showNotice("Email or password is incorrect.");
+  const user = state.users.find((item) => item.email === email);
+  if (!user || !(await passwordMatches(user, form.get("password")))) return showNotice("Email, password, or verification code is incorrect.");
+  if (!(await verifyAuthCode("signin", email, form.get("code")))) return;
+  await migratePasswordIfNeeded(user, form.get("password"));
   activeUserId = user.id;
   saveState();
+  event.currentTarget.reset();
   renderShell();
 });
 
-document.querySelector("#resetForm").addEventListener("submit", (event) => {
+document.querySelector("#resetForm").addEventListener("submit", async (event) => {
   event.preventDefault();
   const form = new FormData(event.currentTarget);
   const user = state.users.find((item) => item.email === form.get("email").toLowerCase().trim());
-  if (!user) return showNotice("No account exists for this email.");
-  if (form.get("code") !== verificationCode) return showNotice("Enter the reset verification code.");
-  user.password = form.get("password");
+  if (!user) return showNotice("Password reset could not be completed.");
+  if (!(await verifyAuthCode("reset", user.email, form.get("code")))) return;
+  Object.assign(user, await createPasswordRecord(form.get("password")));
+  delete user.password;
   saveState();
   event.currentTarget.reset();
   setAuthTab("signin");
