@@ -11,6 +11,9 @@ const currencies = [
 ];
 const icons = ["💳", "🏦", "💵", "🏠", "📈", "🎓", "🚗", "🧾", "⭐"];
 
+const RATES_URL = "https://open.er-api.com/v6/latest/USD";
+const RATES_CACHE_MS = 12 * 60 * 60 * 1000;
+
 const state = loadState();
 let verificationCode = "";
 let activeUserId = state.sessionUserId;
@@ -26,6 +29,7 @@ const els = {
   totalBalance: document.querySelector("#totalBalance"),
   monthSpend: document.querySelector("#monthSpend"),
   topCategory: document.querySelector("#topCategory"),
+  exchangeRateStatus: document.querySelector("#exchangeRateStatus"),
   dashboardAccounts: document.querySelector("#dashboardAccounts"),
   accountsList: document.querySelector("#accountsList"),
   recentExpenses: document.querySelector("#recentExpenses"),
@@ -33,6 +37,7 @@ const els = {
   expenseAccount: document.querySelector("#expenseAccount"),
   expenseFilter: document.querySelector("#expenseFilter"),
   accountCurrency: document.querySelector("#accountCurrency"),
+  currencyOptions: document.querySelector("#currencyOptions"),
   accountIcon: document.querySelector("#accountIcon"),
   accountForm: document.querySelector("#accountForm"),
   accountFormTitle: document.querySelector("#accountFormTitle"),
@@ -43,13 +48,24 @@ const els = {
 
 function loadState() {
   const stored = localStorage.getItem(STORAGE_KEY);
-  if (stored) return JSON.parse(stored);
+  if (stored) {
+    const parsed = JSON.parse(stored);
+    return {
+      sessionUserId: null,
+      users: [],
+      accounts: [],
+      expenses: [],
+      exchangeRates: null,
+      ...parsed
+    };
+  }
 
   return {
     sessionUserId: null,
     users: [],
     accounts: [],
-    expenses: []
+    expenses: [],
+    exchangeRates: null
   };
 }
 
@@ -75,11 +91,100 @@ function userExpenses() {
 }
 
 function formatMoney(amount, currencyCode = "USD") {
-  return new Intl.NumberFormat(undefined, {
-    style: "currency",
-    currency: currencyCode,
-    maximumFractionDigits: 2
-  }).format(Number(amount || 0));
+  try {
+    return new Intl.NumberFormat(undefined, {
+      style: "currency",
+      currency: currencyCode,
+      maximumFractionDigits: 2
+    }).format(Number(amount || 0));
+  } catch {
+    return `${currencyCode} ${Number(amount || 0).toFixed(2)}`;
+  }
+}
+
+function currencyName(code) {
+  try {
+    return new Intl.DisplayNames([navigator.language || "en"], { type: "currency" }).of(code) || code;
+  } catch {
+    return currencies.find((currency) => currency.code === code)?.name || code;
+  }
+}
+
+function normalizeCurrencyInput(value) {
+  return String(value || "").trim().slice(0, 3).toUpperCase();
+}
+
+function exchangeRate(code) {
+  const rates = state.exchangeRates?.rates;
+  return rates?.[code] || null;
+}
+
+function convertCurrency(amount, fromCurrency, toCurrency) {
+  const fromRate = exchangeRate(fromCurrency);
+  const toRate = exchangeRate(toCurrency);
+  if (!fromRate || !toRate) return Number(amount || 0);
+  return (Number(amount || 0) / fromRate) * toRate;
+}
+
+function currencyLabel(currency) {
+  return `${currency.code} - ${currency.name || currencyName(currency.code)}`;
+}
+
+function currencyInputValue(code) {
+  const currency = currencies.find((item) => item.code === code);
+  return currency ? currencyLabel(currency) : code;
+}
+
+function updateCurrencyChoices(rateCodes = []) {
+  const known = new Map(currencies.map((currency) => [currency.code, currency]));
+  rateCodes.forEach((code) => known.set(code, { code, name: currencyName(code) }));
+  const sorted = [...known.values()].sort((a, b) => a.code.localeCompare(b.code));
+  currencies.length = 0;
+  currencies.push(...sorted);
+  renderCurrencyOptions();
+}
+
+function renderCurrencyOptions() {
+  els.currencyOptions.innerHTML = currencies
+    .map((currency) => `<option value="${escapeHtml(currencyLabel(currency))}"></option>`)
+    .join("");
+}
+
+function resetAccountForm() {
+  els.accountForm.reset();
+  els.accountForm.elements.id.value = "";
+  els.accountForm.elements.currency.value = currencyInputValue(userAccounts()[0]?.currency || "USD");
+  els.accountFormTitle.textContent = "New financial account";
+}
+
+async function loadExchangeRates() {
+  if (state.exchangeRates?.loadedAt && Date.now() - state.exchangeRates.loadedAt < RATES_CACHE_MS) {
+    updateCurrencyChoices(Object.keys(state.exchangeRates.rates || {}));
+    renderAll();
+    return;
+  }
+
+  try {
+    const response = await fetch(RATES_URL);
+    if (!response.ok) throw new Error("Exchange rate request failed.");
+    const data = await response.json();
+    if (data.result !== "success" || !data.rates) throw new Error("Exchange rate data was unavailable.");
+
+    state.exchangeRates = {
+      base: data.base_code,
+      rates: data.rates,
+      loadedAt: Date.now(),
+      updatedAt: data.time_last_update_utc,
+      nextUpdateAt: data.time_next_update_utc
+    };
+    updateCurrencyChoices(Object.keys(data.rates));
+    saveState();
+    renderAll();
+  } catch {
+    updateCurrencyChoices(Object.keys(state.exchangeRates?.rates || {}));
+    renderAll();
+    showNotice("Live exchange rates could not load. Using saved currency data for now.");
+  }
 }
 
 function showNotice(message) {
@@ -137,21 +242,26 @@ function renderMetrics() {
   const accounts = userAccounts();
   const expenses = userExpenses();
   const mainCurrency = accounts[0]?.currency || "USD";
-  const total = accounts.reduce((sum, account) => sum + Number(account.balance || 0), 0);
+  const total = accounts.reduce((sum, account) => sum + convertCurrency(account.balance, account.currency, mainCurrency), 0);
   const month = new Date().toISOString().slice(0, 7);
   const monthExpenses = expenses.filter((expense) => expense.date.slice(0, 7) === month);
-  const monthSpend = monthExpenses.reduce((sum, expense) => sum + Number(expense.amount), 0);
-  const top = topCategoryFrom(expenses);
+  const monthSpend = monthExpenses.reduce((sum, expense) => {
+    const account = state.accounts.find((item) => item.id === expense.accountId);
+    return sum + convertCurrency(expense.amount, account?.currency || mainCurrency, mainCurrency);
+  }, 0);
+  const top = topCategoryFrom(expenses, mainCurrency);
 
   els.totalBalance.textContent = formatMoney(total, mainCurrency);
   els.monthSpend.textContent = formatMoney(monthSpend, mainCurrency);
   els.topCategory.textContent = top?.category || "None";
+  els.exchangeRateStatus.textContent = state.exchangeRates?.updatedAt
+    ? `Live exchange rates loaded. Last update: ${state.exchangeRates.updatedAt}. Dashboard totals are shown in ${mainCurrency}.`
+    : "Exchange rates loading. Dashboard totals use saved values until live rates are available.";
 }
 
 function renderAccounts() {
   const accounts = userAccounts();
-  const currencyOptions = currencies.map((currency) => `<option value="${currency.code}">${currency.code} - ${currency.name}</option>`).join("");
-  els.accountCurrency.innerHTML = currencyOptions;
+  renderCurrencyOptions();
   els.accountIcon.innerHTML = icons.map((icon) => `<option value="${icon}">${icon}</option>`).join("");
   els.expenseAccount.innerHTML = accounts.map((account) => `<option value="${account.id}">${account.icon} ${account.name}</option>`).join("");
   els.expenseFilter.innerHTML = `<option value="all">All accounts</option>${accounts.map((account) => `<option value="${account.id}">${account.name}</option>`).join("")}`;
@@ -205,9 +315,9 @@ function expenseRow(expense) {
 
 function renderAnalytics() {
   const expenses = userExpenses();
-  const totals = categoryTotals(expenses);
-  const max = Math.max(...totals.map((item) => item.total), 1);
   const mainCurrency = userAccounts()[0]?.currency || "USD";
+  const totals = categoryTotals(expenses, mainCurrency);
+  const max = Math.max(...totals.map((item) => item.total), 1);
 
   els.categoryBars.innerHTML = totals.length
     ? totals.map((item) => `
@@ -221,18 +331,23 @@ function renderAnalytics() {
   els.aiInsight.textContent = generateInsight(expenses, userAccounts());
 }
 
-function categoryTotals(expenses) {
+function expenseAmountIn(expense, targetCurrency) {
+  const account = state.accounts.find((item) => item.id === expense.accountId);
+  return convertCurrency(expense.amount, account?.currency || targetCurrency, targetCurrency);
+}
+
+function categoryTotals(expenses, targetCurrency = userAccounts()[0]?.currency || "USD") {
   const totals = new Map();
   expenses.forEach((expense) => {
-    totals.set(expense.category, (totals.get(expense.category) || 0) + Number(expense.amount));
+    totals.set(expense.category, (totals.get(expense.category) || 0) + expenseAmountIn(expense, targetCurrency));
   });
   return [...totals.entries()]
     .map(([category, total]) => ({ category, total }))
     .sort((a, b) => b.total - a.total);
 }
 
-function topCategoryFrom(expenses) {
-  return categoryTotals(expenses)[0];
+function topCategoryFrom(expenses, targetCurrency) {
+  return categoryTotals(expenses, targetCurrency)[0];
 }
 
 function generateInsight(expenses, accounts) {
@@ -374,9 +489,7 @@ document.querySelector("#quickExpenseButton").addEventListener("click", () => {
 
 document.querySelector("#newAccountShortcut").addEventListener("click", () => {
   activeView = "accounts";
-  els.accountForm.reset();
-  els.accountForm.elements.id.value = "";
-  els.accountFormTitle.textContent = "New financial account";
+  resetAccountForm();
   renderAll();
 });
 
@@ -384,10 +497,12 @@ els.accountForm.addEventListener("submit", (event) => {
   event.preventDefault();
   const form = new FormData(event.currentTarget);
   const id = form.get("id");
+  const currency = normalizeCurrencyInput(form.get("currency"));
+  if (!currencies.some((item) => item.code === currency)) return showNotice("Choose a currency from the search list.");
   const payload = {
     name: form.get("name").trim(),
     type: form.get("type"),
-    currency: form.get("currency"),
+    currency,
     balance: Number(form.get("balance")),
     icon: form.get("icon")
   };
@@ -400,17 +515,13 @@ els.accountForm.addEventListener("submit", (event) => {
   }
 
   saveState();
-  event.currentTarget.reset();
-  event.currentTarget.elements.id.value = "";
-  els.accountFormTitle.textContent = "New financial account";
+  resetAccountForm();
   renderAll();
   showNotice("Financial account saved.");
 });
 
 document.querySelector("#clearAccountForm").addEventListener("click", () => {
-  els.accountForm.reset();
-  els.accountForm.elements.id.value = "";
-  els.accountFormTitle.textContent = "New financial account";
+  resetAccountForm();
 });
 
 els.accountsList.addEventListener("click", (event) => {
@@ -421,7 +532,7 @@ els.accountsList.addEventListener("click", (event) => {
     els.accountForm.elements.id.value = account.id;
     els.accountForm.elements.name.value = account.name;
     els.accountForm.elements.type.value = account.type;
-    els.accountForm.elements.currency.value = account.currency;
+    els.accountForm.elements.currency.value = currencyInputValue(account.currency);
     els.accountForm.elements.balance.value = account.balance;
     els.accountForm.elements.icon.value = account.icon;
     els.accountFormTitle.textContent = "Edit financial account";
@@ -463,4 +574,6 @@ els.expenseFilter.addEventListener("change", renderExpenses);
 document.querySelector("#refreshInsight").addEventListener("click", renderAnalytics);
 
 els.expenseForm.elements.date.valueAsDate = new Date();
+renderCurrencyOptions();
 renderShell();
+loadExchangeRates();

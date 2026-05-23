@@ -322,6 +322,22 @@ h3 {
   overflow-wrap: anywhere;
 }
 
+.rate-status,
+.rate-attribution {
+  margin: 0 0 14px;
+  color: var(--muted);
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+
+.rate-attribution {
+  margin: 14px 0 0;
+}
+
+.rate-attribution a {
+  color: var(--green-dark);
+}
+
 .two-column,
 .split-layout,
 .analytics-grid {

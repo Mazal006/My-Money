@@ -124,6 +124,7 @@
                 <strong id="topCategory">None</strong>
               </article>
             </div>
+            <p class="rate-status" id="exchangeRateStatus">Exchange rates loading...</p>
 
             <div class="two-column">
               <section class="panel">
@@ -141,6 +142,9 @@
                 <div class="expense-list" id="recentExpenses"></div>
               </section>
             </div>
+            <p class="rate-attribution">
+              <a href="https://www.exchangerate-api.com" target="_blank" rel="noopener">Rates by Exchange Rate API</a>
+            </p>
           </section>
 
           <section class="view" id="accountsView">
@@ -164,7 +168,8 @@
                 </label>
                 <label>
                   Currency
-                  <select name="currency" id="accountCurrency"></select>
+                  <input name="currency" id="accountCurrency" list="currencyOptions" placeholder="Search currency code or name" required />
+                  <datalist id="currencyOptions"></datalist>
                 </label>
                 <label>
                   Balance
