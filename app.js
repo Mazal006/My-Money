@@ -18,6 +18,7 @@ const state = loadState();
 let verificationCode = "";
 let activeUserId = state.sessionUserId;
 let activeView = "dashboard";
+let activeDashboardTab = "revenue";
 
 const els = {
   authPanel: document.querySelector("#authPanel"),
@@ -31,6 +32,7 @@ const els = {
   topCategory: document.querySelector("#topCategory"),
   exchangeRateStatus: document.querySelector("#exchangeRateStatus"),
   dashboardAccounts: document.querySelector("#dashboardAccounts"),
+  dashboardTabContent: document.querySelector("#dashboardTabContent"),
   accountsList: document.querySelector("#accountsList"),
   recentExpenses: document.querySelector("#recentExpenses"),
   expenseHistory: document.querySelector("#expenseHistory"),
@@ -55,6 +57,7 @@ function loadState() {
       users: [],
       accounts: [],
       expenses: [],
+      revenues: [],
       exchangeRates: null,
       ...parsed
     };
@@ -65,6 +68,7 @@ function loadState() {
     users: [],
     accounts: [],
     expenses: [],
+    revenues: [],
     exchangeRates: null
   };
 }
@@ -88,6 +92,10 @@ function userAccounts() {
 
 function userExpenses() {
   return state.expenses.filter((expense) => expense.userId === activeUserId);
+}
+
+function userRevenues() {
+  return (state.revenues || []).filter((revenue) => revenue.userId === activeUserId);
 }
 
 function formatMoney(amount, currencyCode = "USD") {
@@ -217,6 +225,7 @@ function renderShell() {
 function renderAll() {
   renderNavigation();
   renderMetrics();
+  renderDashboardFrame();
   renderAccounts();
   renderExpenses();
   renderAnalytics();
@@ -257,6 +266,69 @@ function renderMetrics() {
   els.exchangeRateStatus.textContent = state.exchangeRates?.updatedAt
     ? `Live exchange rates loaded. Last update: ${state.exchangeRates.updatedAt}. Dashboard totals are shown in ${mainCurrency}.`
     : "Exchange rates loading. Dashboard totals use saved values until live rates are available.";
+}
+
+function renderDashboardFrame() {
+  const mainCurrency = userAccounts()[0]?.currency || "USD";
+  const expenses = recentItems(userExpenses(), 28);
+  const revenues = recentItems(userRevenues(), 28);
+  const expenseTotal = expenses.reduce((sum, expense) => sum + expenseAmountIn(expense, mainCurrency), 0);
+  const revenueTotal = revenues.reduce((sum, revenue) => sum + revenueAmountIn(revenue, mainCurrency), 0);
+
+  document.querySelectorAll(".dashboard-tab").forEach((button) => {
+    button.classList.toggle("active", button.dataset.dashboardTab === activeDashboardTab);
+  });
+
+  if (activeDashboardTab === "revenue") {
+    els.dashboardTabContent.innerHTML = summaryHtml({
+      amount: revenueTotal,
+      currency: mainCurrency,
+      label: `${revenues.length} revenue entr${revenues.length === 1 ? "y" : "ies"} recorded in the last 28 days.`,
+      empty: "Revenue tracking is ready. Add revenue entries next and this tab will show the last 28 days."
+    });
+    return;
+  }
+
+  if (activeDashboardTab === "expenses") {
+    els.dashboardTabContent.innerHTML = summaryHtml({
+      amount: expenseTotal,
+      currency: mainCurrency,
+      label: `${expenses.length} expense${expenses.length === 1 ? "" : "s"} recorded in the last 28 days.`,
+      empty: "No expenses recorded in the last 28 days."
+    });
+    return;
+  }
+
+  if (activeDashboardTab === "expenseCategories") {
+    const totals = categoryTotals(expenses, mainCurrency);
+    els.dashboardTabContent.innerHTML = totals.length
+      ? categorySummaryHtml(totals, mainCurrency)
+      : emptyHtml("No expense categories in the last 28 days.");
+    return;
+  }
+
+  const totals = revenueCategoryTotals(revenues, mainCurrency);
+  els.dashboardTabContent.innerHTML = totals.length
+    ? categorySummaryHtml(totals, mainCurrency)
+    : emptyHtml("Revenue categories will appear here once revenue tracking is added.");
+}
+
+function summaryHtml({ amount, currency, label, empty }) {
+  if (!amount) return emptyHtml(empty);
+  return `
+    <p class="summary-amount">${formatMoney(amount, currency)}</p>
+    <p class="summary-meta">${escapeHtml(label)}</p>
+  `;
+}
+
+function categorySummaryHtml(totals, currency) {
+  const max = Math.max(...totals.map((item) => item.total), 1);
+  return totals.slice(0, 5).map((item) => `
+    <div class="bar-item">
+      <div class="bar-label"><span>${escapeHtml(item.category)}</span><span>${formatMoney(item.total, currency)}</span></div>
+      <div class="bar-line"><div class="bar-fill" style="width: ${(item.total / max) * 100}%"></div></div>
+    </div>
+  `).join("");
 }
 
 function renderAccounts() {
@@ -336,10 +408,36 @@ function expenseAmountIn(expense, targetCurrency) {
   return convertCurrency(expense.amount, account?.currency || targetCurrency, targetCurrency);
 }
 
+function revenueAmountIn(revenue, targetCurrency) {
+  return convertCurrency(revenue.amount, revenue.currency || targetCurrency, targetCurrency);
+}
+
+function recentItems(items, days) {
+  const start = new Date();
+  start.setHours(0, 0, 0, 0);
+  start.setDate(start.getDate() - (days - 1));
+
+  return items.filter((item) => {
+    const itemDate = new Date(`${item.date}T00:00:00`);
+    return itemDate >= start;
+  });
+}
+
 function categoryTotals(expenses, targetCurrency = userAccounts()[0]?.currency || "USD") {
   const totals = new Map();
   expenses.forEach((expense) => {
     totals.set(expense.category, (totals.get(expense.category) || 0) + expenseAmountIn(expense, targetCurrency));
+  });
+  return [...totals.entries()]
+    .map(([category, total]) => ({ category, total }))
+    .sort((a, b) => b.total - a.total);
+}
+
+function revenueCategoryTotals(revenues, targetCurrency = userAccounts()[0]?.currency || "USD") {
+  const totals = new Map();
+  revenues.forEach((revenue) => {
+    const category = revenue.category || "Revenue";
+    totals.set(category, (totals.get(category) || 0) + revenueAmountIn(revenue, targetCurrency));
   });
   return [...totals.entries()]
     .map(([category, total]) => ({ category, total }))
@@ -479,6 +577,13 @@ document.querySelectorAll(".nav-item").forEach((button) => {
   button.addEventListener("click", () => {
     activeView = button.dataset.view;
     renderAll();
+  });
+});
+
+document.querySelectorAll(".dashboard-tab").forEach((button) => {
+  button.addEventListener("click", () => {
+    activeDashboardTab = button.dataset.dashboardTab;
+    renderDashboardFrame();
   });
 });
 

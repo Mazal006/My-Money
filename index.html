@@ -126,6 +126,19 @@
             </div>
             <p class="rate-status" id="exchangeRateStatus">Exchange rates loading...</p>
 
+            <section class="panel dashboard-frame">
+              <div class="panel-heading">
+                <h3>Last 28 days</h3>
+              </div>
+              <div class="dashboard-tabs" role="tablist" aria-label="Last 28 days summary">
+                <button class="dashboard-tab active" data-dashboard-tab="revenue" type="button">Revenue</button>
+                <button class="dashboard-tab" data-dashboard-tab="expenses" type="button">Expenses</button>
+                <button class="dashboard-tab" data-dashboard-tab="expenseCategories" type="button">Top expense categories</button>
+                <button class="dashboard-tab" data-dashboard-tab="revenueCategories" type="button">Top revenue categories</button>
+              </div>
+              <div class="dashboard-tab-content" id="dashboardTabContent"></div>
+            </section>
+
             <div class="two-column">
               <section class="panel">
                 <div class="panel-heading">

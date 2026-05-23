@@ -338,6 +338,52 @@ h3 {
   color: var(--green-dark);
 }
 
+.dashboard-frame {
+  margin-bottom: 14px;
+}
+
+.dashboard-tabs {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: 14px;
+  padding: 4px;
+  background: #edf1ee;
+  border-radius: 8px;
+}
+
+.dashboard-tab {
+  min-height: 42px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.84rem;
+  font-weight: 800;
+}
+
+.dashboard-tab.active {
+  background: var(--green);
+  color: #fff;
+}
+
+.dashboard-tab-content {
+  margin-top: 14px;
+}
+
+.summary-amount {
+  margin: 0;
+  font-size: clamp(1.5rem, 2.8vw, 2.2rem);
+  font-weight: 900;
+}
+
+.summary-meta {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
 .two-column,
 .split-layout,
 .analytics-grid {
@@ -508,6 +554,10 @@ h3 {
   .side-nav nav {
     grid-template-columns: repeat(4, 1fr);
     gap: 6px;
+  }
+
+  .dashboard-tabs {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .nav-item {
