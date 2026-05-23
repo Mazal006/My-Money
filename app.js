@@ -18,7 +18,6 @@ const state = loadState();
 let verificationCode = "";
 let activeUserId = state.sessionUserId;
 let activeView = "dashboard";
-let activeDashboardTab = "revenue";
 
 const els = {
   authPanel: document.querySelector("#authPanel"),
@@ -30,7 +29,6 @@ const els = {
   totalBalance: document.querySelector("#totalBalance"),
   monthSpend: document.querySelector("#monthSpend"),
   topCategory: document.querySelector("#topCategory"),
-  exchangeRateStatus: document.querySelector("#exchangeRateStatus"),
   dashboardAccounts: document.querySelector("#dashboardAccounts"),
   dashboardTabContent: document.querySelector("#dashboardTabContent"),
   accountsList: document.querySelector("#accountsList"),
@@ -191,7 +189,6 @@ async function loadExchangeRates() {
   } catch {
     updateCurrencyChoices(Object.keys(state.exchangeRates?.rates || {}));
     renderAll();
-    showNotice("Live exchange rates could not load. Using saved currency data for now.");
   }
 }
 
@@ -263,9 +260,6 @@ function renderMetrics() {
   els.totalBalance.textContent = formatMoney(total, mainCurrency);
   els.monthSpend.textContent = formatMoney(monthSpend, mainCurrency);
   els.topCategory.textContent = top?.category || "None";
-  els.exchangeRateStatus.textContent = state.exchangeRates?.updatedAt
-    ? `Live exchange rates loaded. Last update: ${state.exchangeRates.updatedAt}. Dashboard totals are shown in ${mainCurrency}.`
-    : "Exchange rates loading. Dashboard totals use saved values until live rates are available.";
 }
 
 function renderDashboardFrame() {
@@ -274,61 +268,43 @@ function renderDashboardFrame() {
   const revenues = recentItems(userRevenues(), 28);
   const expenseTotal = expenses.reduce((sum, expense) => sum + expenseAmountIn(expense, mainCurrency), 0);
   const revenueTotal = revenues.reduce((sum, revenue) => sum + revenueAmountIn(revenue, mainCurrency), 0);
+  const expenseCategories = categoryTotals(expenses, mainCurrency);
+  const revenueCategories = revenueCategoryTotals(revenues, mainCurrency);
+  const topExpense = expenseCategories[0];
+  const topRevenue = revenueCategories[0];
 
-  document.querySelectorAll(".dashboard-tab").forEach((button) => {
-    button.classList.toggle("active", button.dataset.dashboardTab === activeDashboardTab);
-  });
-
-  if (activeDashboardTab === "revenue") {
-    els.dashboardTabContent.innerHTML = summaryHtml({
-      amount: revenueTotal,
-      currency: mainCurrency,
-      label: `${revenues.length} revenue entr${revenues.length === 1 ? "y" : "ies"} recorded in the last 28 days.`,
-      empty: "Revenue tracking is ready. Add revenue entries next and this tab will show the last 28 days."
-    });
-    return;
-  }
-
-  if (activeDashboardTab === "expenses") {
-    els.dashboardTabContent.innerHTML = summaryHtml({
-      amount: expenseTotal,
-      currency: mainCurrency,
-      label: `${expenses.length} expense${expenses.length === 1 ? "" : "s"} recorded in the last 28 days.`,
-      empty: "No expenses recorded in the last 28 days."
-    });
-    return;
-  }
-
-  if (activeDashboardTab === "expenseCategories") {
-    const totals = categoryTotals(expenses, mainCurrency);
-    els.dashboardTabContent.innerHTML = totals.length
-      ? categorySummaryHtml(totals, mainCurrency)
-      : emptyHtml("No expense categories in the last 28 days.");
-    return;
-  }
-
-  const totals = revenueCategoryTotals(revenues, mainCurrency);
-  els.dashboardTabContent.innerHTML = totals.length
-    ? categorySummaryHtml(totals, mainCurrency)
-    : emptyHtml("Revenue categories will appear here once revenue tracking is added.");
+  els.dashboardTabContent.innerHTML = [
+    dashboardMetricHtml(
+      "Revenue",
+      formatMoney(revenueTotal, mainCurrency),
+      revenues.length ? `${revenues.length} revenue entr${revenues.length === 1 ? "y" : "ies"} in the last 28 days.` : "No revenue recorded in the last 28 days."
+    ),
+    dashboardMetricHtml(
+      "Expenses",
+      formatMoney(expenseTotal, mainCurrency),
+      expenses.length ? `${expenses.length} expense${expenses.length === 1 ? "" : "s"} in the last 28 days.` : "No expenses recorded in the last 28 days."
+    ),
+    dashboardMetricHtml(
+      "Top expense categories",
+      topExpense?.category || "None",
+      topExpense ? `${formatMoney(topExpense.total, mainCurrency)} spent in the last 28 days.` : "No expense categories in the last 28 days."
+    ),
+    dashboardMetricHtml(
+      "Top revenue categories",
+      topRevenue?.category || "None",
+      topRevenue ? `${formatMoney(topRevenue.total, mainCurrency)} received in the last 28 days.` : "No revenue categories in the last 28 days."
+    )
+  ].join("");
 }
 
-function summaryHtml({ amount, currency, label, empty }) {
-  if (!amount) return emptyHtml(empty);
+function dashboardMetricHtml(label, value, detail) {
   return `
-    <p class="summary-amount">${formatMoney(amount, currency)}</p>
-    <p class="summary-meta">${escapeHtml(label)}</p>
+    <article class="metric-card dashboard-metric-card">
+      <span>${escapeHtml(label)}</span>
+      <strong>${escapeHtml(value)}</strong>
+      <p>${escapeHtml(detail)}</p>
+    </article>
   `;
-}
-
-function categorySummaryHtml(totals, currency) {
-  const max = Math.max(...totals.map((item) => item.total), 1);
-  return totals.slice(0, 5).map((item) => `
-    <div class="bar-item">
-      <div class="bar-label"><span>${escapeHtml(item.category)}</span><span>${formatMoney(item.total, currency)}</span></div>
-      <div class="bar-line"><div class="bar-fill" style="width: ${(item.total / max) * 100}%"></div></div>
-    </div>
-  `).join("");
 }
 
 function renderAccounts() {
@@ -577,13 +553,6 @@ document.querySelectorAll(".nav-item").forEach((button) => {
   button.addEventListener("click", () => {
     activeView = button.dataset.view;
     renderAll();
-  });
-});
-
-document.querySelectorAll(".dashboard-tab").forEach((button) => {
-  button.addEventListener("click", () => {
-    activeDashboardTab = button.dataset.dashboardTab;
-    renderDashboardFrame();
   });
 });
 

@@ -322,63 +322,24 @@ h3 {
   overflow-wrap: anywhere;
 }
 
-.rate-status,
-.rate-attribution {
-  margin: 0 0 14px;
-  color: var(--muted);
-  font-size: 0.84rem;
-  font-weight: 700;
-}
-
-.rate-attribution {
-  margin: 14px 0 0;
-}
-
-.rate-attribution a {
-  color: var(--green-dark);
-}
-
 .dashboard-frame {
   margin-bottom: 14px;
 }
 
-.dashboard-tabs {
+.dashboard-summary-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 6px;
-  margin-top: 14px;
-  padding: 4px;
-  background: #edf1ee;
-  border-radius: 8px;
-}
-
-.dashboard-tab {
-  min-height: 42px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--muted);
-  font-size: 0.84rem;
-  font-weight: 800;
-}
-
-.dashboard-tab.active {
-  background: var(--green);
-  color: #fff;
-}
-
-.dashboard-tab-content {
+  gap: 14px;
   margin-top: 14px;
 }
 
-.summary-amount {
-  margin: 0;
-  font-size: clamp(1.5rem, 2.8vw, 2.2rem);
-  font-weight: 900;
+.dashboard-metric-card {
+  box-shadow: none;
+  min-height: 136px;
 }
 
-.summary-meta {
-  margin: 6px 0 0;
+.dashboard-metric-card p {
+  margin: 10px 0 0;
   color: var(--muted);
   font-size: 0.9rem;
   font-weight: 700;
@@ -556,7 +517,7 @@ h3 {
     gap: 6px;
   }
 
-  .dashboard-tabs {
+  .dashboard-summary-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -593,6 +554,10 @@ h3 {
   .account-row,
   .expense-row {
     grid-template-columns: auto 1fr;
+  }
+
+  .dashboard-summary-grid {
+    grid-template-columns: 1fr;
   }
 
   .row-value,
