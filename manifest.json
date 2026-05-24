@@ -1,9 +1,0 @@
-{
-  "name": "My Money",
-  "short_name": "My Money",
-  "start_url": "./index.html",
-  "display": "standalone",
-  "background_color": "#f7f8f5",
-  "theme_color": "#10231f",
-  "icons": []
-}

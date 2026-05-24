@@ -1,0 +1,28 @@
+{
+  "expo": {
+    "name": "My Money",
+    "slug": "my-money",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "scheme": "mymoney",
+    "userInterfaceStyle": "light",
+    "assetBundlePatterns": ["**/*"],
+    "web": {
+      "bundler": "metro"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.mymoney.app"
+    },
+    "android": {
+      "package": "com.mymoney.app",
+      "adaptiveIcon": {
+        "backgroundColor": "#10231f"
+      }
+    },
+    "extra": {
+      "supabaseUrl": "$EXPO_PUBLIC_SUPABASE_URL",
+      "supabaseAnonKey": "$EXPO_PUBLIC_SUPABASE_ANON_KEY"
+    }
+  }
+}

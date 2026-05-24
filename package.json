@@ -1,0 +1,36 @@
+{
+  "name": "my-money",
+  "version": "1.0.0",
+  "private": true,
+  "main": "index.ts",
+  "scripts": {
+    "start": "expo start",
+    "web": "expo start --web",
+    "android": "expo start --android",
+    "ios": "expo start --ios",
+    "build:web": "expo export --platform web",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@expo/metro-runtime": "~5.0.4",
+    "@opentelemetry/api": "^1.9.1",
+    "@react-native-async-storage/async-storage": "1.23.1",
+    "@supabase/supabase-js": "^2.45.4",
+    "expo": "~52.0.0",
+    "expo-asset": "~11.0.1",
+    "expo-constants": "~17.0.3",
+    "expo-status-bar": "~2.0.0",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "react-native": "0.76.5",
+    "react-native-url-polyfill": "^2.0.0",
+    "react-native-web": "~0.19.13"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.25.2",
+    "@types/node": "^22.10.2",
+    "@types/prop-types": "^15.7.14",
+    "@types/react": "~18.3.12",
+    "typescript": "^5.3.3"
+  }
+}

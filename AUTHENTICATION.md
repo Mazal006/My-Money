@@ -1,66 +1,26 @@
-# Authentication Contract
+# Authentication
 
-This app is currently a frontend prototype. Real email verification must be handled by a backend or an auth provider, not by browser-only JavaScript.
+Authentication is now handled by Supabase Auth when the Expo environment variables are configured.
 
-## Required Backend Endpoints
+## Required Environment Variables
 
-### `POST /auth/challenges`
-
-Sends an email verification code.
-
-Request:
-
-```json
-{
-  "purpose": "signup",
-  "email": "user@example.com"
-}
+```bash
+EXPO_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+EXPO_PUBLIC_SUPABASE_ANON_KEY=your-public-anon-key
 ```
 
-Allowed `purpose` values:
+## Current Flow
 
-- `signup`
-- `signin`
-- `reset`
+- Sign up uses `supabase.auth.signUp`.
+- Sign in uses `supabase.auth.signInWithPassword`.
+- Password reset uses `supabase.auth.resetPasswordForEmail`.
+- Sessions are managed by Supabase on web, iOS, and Android.
+- Finance data is stored in PostgreSQL tables protected by Row Level Security.
 
-Response:
+## Local Demo Mode
 
-```json
-{
-  "challengeId": "server-generated-id"
-}
-```
+If Supabase variables are missing, the app runs with AsyncStorage and a local demo login. This is only for offline development and should not be used as production authentication.
 
-### `POST /auth/challenges/verify`
+## Database
 
-Verifies the emailed code.
-
-Request:
-
-```json
-{
-  "purpose": "signin",
-  "email": "user@example.com",
-  "code": "123456",
-  "challengeId": "server-generated-id"
-}
-```
-
-Response:
-
-```json
-{
-  "ok": true
-}
-```
-
-## Security Requirements
-
-- Send codes by email from the backend only.
-- Expire codes after 10 minutes or less.
-- Limit attempts per challenge and per IP address.
-- Store password hashes on the backend with Argon2id or bcrypt.
-- Never store plaintext passwords.
-- Use secure HTTP-only cookies for web sessions.
-- Use short-lived access tokens and refresh tokens for mobile apps.
-- Return generic messages for sign-in and reset failures to avoid account enumeration.
+Run [supabase/schema.sql](supabase/schema.sql) in the Supabase SQL editor before using the cloud backend.
