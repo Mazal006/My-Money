@@ -470,15 +470,11 @@ export default function App() {
           </View>
           <View style={styles.authCard}>
             <View style={styles.tabs}>
-              {(["signin", "signup", "reset"] as AuthMode[]).map((mode) => (
+              {(["signin", "signup"] as AuthMode[]).map((mode) => (
                 <TabButton key={mode} active={authMode === mode} label={modeLabel(mode)} onPress={() => setAuthMode(mode)} />
               ))}
             </View>
-            <View style={styles.authHeader}>
-              <Text style={styles.authTitle}>{authTitle(authMode)}</Text>
-              <Text style={styles.authHint}>{authHint(authMode)}</Text>
-            </View>
-            <Notice text={notice || (supabase ? "Supabase backend enabled." : "Local demo mode. Add Supabase env vars for cloud auth and database.")} />
+            <Notice text={notice} />
             {authMode === "signup" && (
               <Field
                 label="Full name"
@@ -521,7 +517,6 @@ export default function App() {
             {authMode === "signup" && <Text style={styles.passwordHint}>Use at least 8 characters.</Text>}
             <PrimaryButton label={authButtonLabel(authMode, authBusy)} onPress={handleAuth} disabled={authBusy} />
             <View style={styles.authSwitchRow}>
-              <Text style={styles.authSwitchText}>{authSwitchCopy(authMode)}</Text>
               <Pressable onPress={() => setAuthMode(authMode === "signin" ? "signup" : "signin")}>
                 <Text style={styles.authSwitchLink}>{authMode === "signin" ? "Create account" : "Sign in"}</Text>
               </Pressable>
@@ -851,29 +846,11 @@ function modeLabel(mode: AuthMode) {
   return "Reset";
 }
 
-function authTitle(mode: AuthMode) {
-  if (mode === "signup") return "Create your account";
-  if (mode === "reset") return "Reset your password";
-  return "Sign in to My Money";
-}
-
-function authHint(mode: AuthMode) {
-  if (mode === "signup") return "Use your email and a secure password to protect your financial workspace.";
-  if (mode === "reset") return "Enter your account email and we will send a password reset link.";
-  return "Access your accounts, expenses, and analytics with your saved credentials.";
-}
-
 function authButtonLabel(mode: AuthMode, busy: boolean) {
   if (busy) return "Please wait...";
   if (mode === "reset") return "Send reset link";
   if (mode === "signup") return "Create account";
   return "Sign in";
-}
-
-function authSwitchCopy(mode: AuthMode) {
-  if (mode === "signup") return "Already have an account?";
-  if (mode === "reset") return "Remembered your password?";
-  return "New to My Money?";
 }
 
 function getAuthRedirectUrl() {
@@ -1013,12 +990,8 @@ const styles = StyleSheet.create({
   heroTitle: { color: "#13201d", fontSize: 56, lineHeight: 58, fontWeight: "900" },
   heroText: { color: "#66736f", marginTop: 14, fontSize: 18, lineHeight: 28 },
   authCard: { width: "100%", maxWidth: 440, padding: 18, gap: 14, backgroundColor: "#fff", borderColor: "#d8dfdc", borderWidth: 1, borderRadius: 8 },
-  authHeader: { gap: 6 },
-  authTitle: { color: "#13201d", fontSize: 22, lineHeight: 28, fontWeight: "900" },
-  authHint: { color: "#66736f", lineHeight: 21, fontWeight: "700" },
   passwordHint: { color: "#66736f", marginTop: -6, fontSize: 12, fontWeight: "700" },
   authSwitchRow: { flexDirection: "row", gap: 6, alignItems: "center", justifyContent: "center", flexWrap: "wrap" },
-  authSwitchText: { color: "#66736f", fontWeight: "700" },
   authSwitchLink: { color: "#0f6f5f", fontWeight: "900" },
   forgotLink: { color: "#0f6f5f", textAlign: "center", fontWeight: "900" },
   tabs: { flexDirection: "row", gap: 6, padding: 4, borderRadius: 8, backgroundColor: "#edf1ee" },
