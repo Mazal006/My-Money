@@ -20,7 +20,7 @@ import { createClient, SupabaseClient, User } from "@supabase/supabase-js";
 
 declare const process: { env: Record<string, string | undefined> };
 
-type ViewName = "dashboard" | "accounts" | "expenses" | "analytics";
+type ViewName = "dashboard" | "accounts" | "expenses" | "revenue" | "analytics" | "settings";
 type AuthMode = "signin" | "signup" | "reset" | "recover";
 
 type Account = {
@@ -43,6 +43,16 @@ type Expense = {
   note: string;
 };
 
+type Revenue = {
+  id: string;
+  userId: string;
+  accountId: string;
+  source: string;
+  amount: number;
+  date: string;
+  note: string;
+};
+
 type LocalUser = {
   id: string;
   name: string;
@@ -55,13 +65,35 @@ type LocalState = {
   users: LocalUser[];
   accounts: Account[];
   expenses: Expense[];
+  revenues: Revenue[];
 };
 
 const STORAGE_KEY = "myMoneyExpoState";
 const categories = ["Housing", "Food", "Transport", "Utilities", "Health", "Education", "Entertainment", "Debt", "Savings", "Other"];
-const accountTypes = ["Cash", "Bank account", "Credit card", "Savings", "Investment"];
-const currencies = ["USD", "ZAR", "EUR", "GBP", "NGN", "KES", "INR"];
-const icons = ["M", "B", "$", "H", "I", "S", "C"];
+const revenueSources = ["Salary", "Business", "Freelance", "Investment", "Gift", "Refund", "Other"];
+const accountTypes = ["Cash", "Bank account", "Credit card", "Savings", "Investment", "Mobile money", "Loan", "Crypto wallet"];
+const accountTypeIcons: Record<string, string> = {
+  Cash: "CA",
+  "Bank account": "BK",
+  "Credit card": "CC",
+  Savings: "SV",
+  Investment: "IV",
+  "Mobile money": "MM",
+  Loan: "LN",
+  "Crypto wallet": "CR"
+};
+const currencies = [
+  "AED", "AFN", "ALL", "AMD", "ANG", "AOA", "ARS", "AUD", "AWG", "AZN", "BAM", "BBD", "BDT", "BGN", "BHD", "BIF",
+  "BMD", "BND", "BOB", "BRL", "BSD", "BTN", "BWP", "BYN", "BZD", "CAD", "CDF", "CHF", "CLP", "CNY", "COP", "CRC",
+  "CUP", "CVE", "CZK", "DJF", "DKK", "DOP", "DZD", "EGP", "ERN", "ETB", "EUR", "FJD", "FKP", "FOK", "GBP", "GEL",
+  "GGP", "GHS", "GIP", "GMD", "GNF", "GTQ", "GYD", "HKD", "HNL", "HRK", "HTG", "HUF", "IDR", "ILS", "IMP", "INR",
+  "IQD", "IRR", "ISK", "JEP", "JMD", "JOD", "JPY", "KES", "KGS", "KHR", "KID", "KMF", "KRW", "KWD", "KYD", "KZT",
+  "LAK", "LBP", "LKR", "LRD", "LSL", "LYD", "MAD", "MDL", "MGA", "MKD", "MMK", "MNT", "MOP", "MRU", "MUR", "MVR",
+  "MWK", "MXN", "MYR", "MZN", "NAD", "NGN", "NIO", "NOK", "NPR", "NZD", "OMR", "PAB", "PEN", "PGK", "PHP", "PKR",
+  "PLN", "PYG", "QAR", "RON", "RSD", "RUB", "RWF", "SAR", "SBD", "SCR", "SDG", "SEK", "SGD", "SHP", "SLE", "SOS",
+  "SRD", "SSP", "STN", "SYP", "SZL", "THB", "TJS", "TMT", "TND", "TOP", "TRY", "TTD", "TVD", "TWD", "TZS", "UAH",
+  "UGX", "USD", "UYU", "UZS", "VES", "VND", "VUV", "WST", "XAF", "XCD", "XOF", "XPF", "YER", "ZAR", "ZMW", "ZWL"
+];
 
 const cleanEnvValue = (value: string | undefined) => {
   const trimmed = value?.trim() || "";
@@ -99,7 +131,8 @@ const blankLocalState: LocalState = {
   sessionUserId: null,
   users: [],
   accounts: [],
-  expenses: []
+  expenses: [],
+  revenues: []
 };
 
 const newId = (prefix: string) => `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -118,7 +151,9 @@ export default function App() {
   const [localState, setLocalState] = useState<LocalState>(blankLocalState);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [revenues, setRevenues] = useState<Revenue[]>([]);
   const [editingAccountId, setEditingAccountId] = useState<string | null>(null);
+  const [openSelect, setOpenSelect] = useState<string | null>(null);
 
   const [authForm, setAuthForm] = useState({ name: "", email: "", password: "", confirmPassword: "" });
   const [accountForm, setAccountForm] = useState({
@@ -126,7 +161,7 @@ export default function App() {
     type: "Cash",
     currency: "USD",
     balance: "0",
-    icon: "M"
+    icon: accountTypeIcons.Cash
   });
   const [expenseForm, setExpenseForm] = useState({
     accountId: "",
@@ -136,6 +171,19 @@ export default function App() {
     note: ""
   });
   const [expenseFilter, setExpenseFilter] = useState("all");
+  const [revenueForm, setRevenueForm] = useState({
+    accountId: "",
+    source: "Salary",
+    amount: "",
+    date: today(),
+    note: ""
+  });
+  const [revenueFilter, setRevenueFilter] = useState("all");
+  const [settingsForm, setSettingsForm] = useState({
+    defaultCurrency: "USD",
+    defaultView: "dashboard",
+    compactSummary: "On"
+  });
 
   useEffect(() => {
     void bootstrap();
@@ -152,7 +200,10 @@ export default function App() {
     if (!expenseForm.accountId && accounts[0]) {
       setExpenseForm((current) => ({ ...current, accountId: accounts[0].id }));
     }
-  }, [accounts, expenseForm.accountId]);
+    if (!revenueForm.accountId && accounts[0]) {
+      setRevenueForm((current) => ({ ...current, accountId: accounts[0].id }));
+    }
+  }, [accounts, expenseForm.accountId, revenueForm.accountId]);
 
   const mainCurrency = accounts[0]?.currency || "USD";
   const metrics = useMemo(() => {
@@ -160,13 +211,16 @@ export default function App() {
     const monthSpend = expenses
       .filter((expense) => expense.date.slice(0, 7) === month)
       .reduce((sum, expense) => sum + expense.amount, 0);
+    const monthRevenue = revenues
+      .filter((revenue) => revenue.date.slice(0, 7) === month)
+      .reduce((sum, revenue) => sum + revenue.amount, 0);
     const totalBalance = accounts.reduce((sum, account) => sum + Number(account.balance || 0), 0);
     const liabilities = accounts.reduce((sum, account) => {
       const balance = Number(account.balance || 0);
       return sum + (account.type === "Credit card" ? Math.abs(balance) : Math.max(0, -balance));
     }, 0);
-    return { totalBalance, monthSpend, liabilities };
-  }, [accounts, expenses]);
+    return { totalBalance, monthSpend, monthRevenue, netFlow: monthRevenue - monthSpend, liabilities };
+  }, [accounts, expenses, revenues]);
 
   const categoryTotals = useMemo(() => {
     const totals = new Map<string, number>();
@@ -197,6 +251,7 @@ export default function App() {
           else {
             setAccounts([]);
             setExpenses([]);
+            setRevenues([]);
           }
         });
       } else {
@@ -208,6 +263,7 @@ export default function App() {
         if (active) {
           setAccounts(parsed.accounts.filter((account) => account.userId === active.id));
           setExpenses(parsed.expenses.filter((expense) => expense.userId === active.id));
+          setRevenues(parsed.revenues.filter((revenue) => revenue.userId === active.id));
         }
       }
     } catch {
@@ -224,16 +280,18 @@ export default function App() {
 
   async function loadRemoteData(userId: string) {
     if (!supabase) return;
-    const [{ data: accountRows, error: accountError }, { data: expenseRows, error: expenseError }] = await Promise.all([
+    const [{ data: accountRows, error: accountError }, { data: expenseRows, error: expenseError }, { data: revenueRows, error: revenueError }] = await Promise.all([
       supabase.from("accounts").select("*").eq("user_id", userId).order("created_at", { ascending: true }),
-      supabase.from("expenses").select("*").eq("user_id", userId).order("date", { ascending: false })
+      supabase.from("expenses").select("*").eq("user_id", userId).order("date", { ascending: false }),
+      supabase.from("revenues").select("*").eq("user_id", userId).order("date", { ascending: false })
     ]);
-    if (accountError || expenseError) {
+    if (accountError || expenseError || revenueError) {
       setNotice("Supabase data could not be loaded. Check the schema in supabase/schema.sql.");
       return;
     }
     setAccounts((accountRows || []).map(accountFromRow));
     setExpenses((expenseRows || []).map(expenseFromRow));
+    setRevenues((revenueRows || []).map(revenueFromRow));
   }
 
   async function handleAuth() {
@@ -307,6 +365,7 @@ export default function App() {
       setUser(localUser);
       setAccounts([firstAccount]);
       setExpenses([]);
+      setRevenues([]);
       setNotice("Local demo account created.");
       return;
     }
@@ -317,6 +376,7 @@ export default function App() {
     setUser(localUser);
     setAccounts(next.accounts.filter((account) => account.userId === localUser.id));
     setExpenses(next.expenses.filter((expense) => expense.userId === localUser.id));
+    setRevenues(next.revenues.filter((revenue) => revenue.userId === localUser.id));
     setNotice("Signed in locally.");
   }
 
@@ -346,6 +406,7 @@ export default function App() {
     setUser(null);
     setAccounts([]);
     setExpenses([]);
+    setRevenues([]);
     setActiveView("dashboard");
   }
 
@@ -356,7 +417,7 @@ export default function App() {
       type: accountForm.type,
       currency: accountForm.currency.trim().toUpperCase().slice(0, 3),
       balance: Number(accountForm.balance || 0),
-      icon: accountForm.icon
+      icon: iconForAccountType(accountForm.type)
     };
     if (!payload.name) return setNotice("Account name is required.");
     if (!currencies.includes(payload.currency)) return setNotice("Choose a supported currency.");
@@ -398,11 +459,13 @@ export default function App() {
       const next = {
         ...localState,
         accounts: localState.accounts.filter((account) => account.id !== id),
-        expenses: localState.expenses.filter((expense) => expense.accountId !== id)
+        expenses: localState.expenses.filter((expense) => expense.accountId !== id),
+        revenues: localState.revenues.filter((revenue) => revenue.accountId !== id)
       };
       await persistLocal(next);
       setAccounts(next.accounts.filter((account) => account.userId === user.id));
       setExpenses(next.expenses.filter((expense) => expense.userId === user.id));
+      setRevenues(next.revenues.filter((revenue) => revenue.userId === user.id));
     }
     setNotice("Account deleted.");
   }
@@ -444,6 +507,49 @@ export default function App() {
     setNotice("Expense tracked.");
   }
 
+  async function addRevenue() {
+    if (!user) return;
+    const account = accounts.find((item) => item.id === revenueForm.accountId);
+    const amount = Number(revenueForm.amount || 0);
+    if (!account) return setNotice("Create or select an account first.");
+    if (amount <= 0) return setNotice("Enter a positive revenue amount.");
+    const revenue: Revenue = {
+      id: newId("revenue"),
+      userId: user.id,
+      accountId: account.id,
+      source: revenueForm.source,
+      amount,
+      date: revenueForm.date || today(),
+      note: revenueForm.note.trim()
+    };
+    const updatedAccount = { ...account, balance: Number(account.balance) + amount };
+
+    if (supabase) {
+      const { error: revenueError } = await supabase.from("revenues").insert(revenueToRow(revenue));
+      if (revenueError) return setNotice(revenueError.message);
+      const { error: accountError } = await supabase.from("accounts").update({ balance: updatedAccount.balance }).eq("id", account.id);
+      if (accountError) return setNotice(accountError.message);
+      await loadRemoteData(user.id);
+    } else {
+      const next = {
+        ...localState,
+        revenues: [...localState.revenues, revenue],
+        accounts: localState.accounts.map((item) => (item.id === account.id ? updatedAccount : item))
+      };
+      await persistLocal(next);
+      setAccounts(next.accounts.filter((item) => item.userId === user.id));
+      setRevenues(next.revenues.filter((item) => item.userId === user.id));
+    }
+    setRevenueForm((current) => ({ ...current, amount: "", note: "", date: today() }));
+    setNotice("Revenue tracked.");
+  }
+
+  function saveSettings() {
+    setSettingsForm((current) => ({ ...current, defaultCurrency: current.defaultCurrency.toUpperCase() }));
+    if (settingsForm.defaultView !== activeView) setActiveView(settingsForm.defaultView as ViewName);
+    setNotice("Settings updated.");
+  }
+
   function editAccount(account: Account) {
     setEditingAccountId(account.id);
     setAccountForm({
@@ -451,18 +557,21 @@ export default function App() {
       type: account.type,
       currency: account.currency,
       balance: String(account.balance),
-      icon: account.icon
+      icon: iconForAccountType(account.type)
     });
     setActiveView("accounts");
   }
 
   function resetAccountForm() {
     setEditingAccountId(null);
-    setAccountForm({ name: "", type: "Cash", currency: mainCurrency, balance: "0", icon: "M" });
+    setAccountForm({ name: "", type: "Cash", currency: settingsForm.defaultCurrency || mainCurrency, balance: "0", icon: iconForAccountType("Cash") });
   }
 
   const filteredExpenses = expenses
     .filter((expense) => expenseFilter === "all" || expense.accountId === expenseFilter)
+    .sort((a, b) => b.date.localeCompare(a.date));
+  const filteredRevenues = revenues
+    .filter((revenue) => revenueFilter === "all" || revenue.accountId === revenueFilter)
     .sort((a, b) => b.date.localeCompare(a.date));
 
   if (booting) {
@@ -562,32 +671,79 @@ export default function App() {
         {!compact && (
           <SideNav activeView={activeView} setActiveView={setActiveView} signOut={signOut} />
         )}
-        <ScrollView style={styles.content} contentContainerStyle={styles.contentInner}>
+        <ScrollView style={styles.content} contentContainerStyle={[styles.contentInner, phone && styles.contentInnerPhone]}>
           <View style={[styles.topBar, phone && styles.topBarPhone]}>
             <View>
               <Text style={styles.eyebrow}>{new Intl.DateTimeFormat(undefined, { dateStyle: "full" }).format(new Date())}</Text>
               <Text style={styles.screenTitle}>{titleFor(activeView)}</Text>
             </View>
-            {!compact && <SecondaryButton label="Sign out" onPress={signOut} />}
+            <View style={styles.headerActions}>
+              <IconButton label="Set" onPress={() => setActiveView("settings")} />
+              {!compact && <SecondaryButton label="Sign out" onPress={signOut} />}
+            </View>
           </View>
           <Notice text={notice} />
           {activeView === "dashboard" && renderDashboard()}
           {activeView === "accounts" && renderAccounts()}
           {activeView === "expenses" && renderExpenses()}
+          {activeView === "revenue" && renderRevenue()}
           {activeView === "analytics" && renderAnalytics()}
+          {activeView === "settings" && renderSettings()}
         </ScrollView>
-        {compact && <BottomNav activeView={activeView} setActiveView={setActiveView} signOut={signOut} />}
+        {compact && <BottomNav activeView={activeView} setActiveView={setActiveView} />}
       </View>
     </SafeAreaView>
   );
 
   function renderDashboard() {
     const recent = filteredExpenses.slice(0, 3);
+    if (compact) {
+      return (
+        <View style={styles.mobileStudio}>
+          <View style={styles.mobileHero}>
+            <Text style={styles.mobileHeroLabel}>Current balance</Text>
+            <Text style={styles.mobileHeroValue}>{formatMoney(metrics.totalBalance, mainCurrency)}</Text>
+            <View style={styles.mobileHeroStats}>
+              <View>
+                <Text style={styles.mobileStatLabel}>Revenue</Text>
+                <Text style={styles.mobileStatValue}>{formatMoney(metrics.monthRevenue, mainCurrency)}</Text>
+              </View>
+              <View>
+                <Text style={styles.mobileStatLabel}>Spend</Text>
+                <Text style={styles.mobileStatValue}>{formatMoney(metrics.monthSpend, mainCurrency)}</Text>
+              </View>
+              <View>
+                <Text style={styles.mobileStatLabel}>Net</Text>
+                <Text style={styles.mobileStatValue}>{formatMoney(metrics.netFlow, mainCurrency)}</Text>
+              </View>
+            </View>
+          </View>
+          <View style={styles.quickActions}>
+            <MiniButton label="Add expense" onPress={() => setActiveView("expenses")} />
+            <MiniButton label="Add revenue" onPress={() => setActiveView("revenue")} />
+            <MiniButton label="Account" onPress={() => setActiveView("accounts")} />
+          </View>
+          <Panel title="Overview">
+            <MetricCard compact label="Last 28 days" value={formatMoney(lastDaysExpenses(28), mainCurrency)} detail={`${recentItems(expenses, 28).length} expense entries`} />
+            <MetricCard compact label="Top category" value={categoryTotals[0]?.category || "None"} detail={categoryTotals[0] ? formatMoney(categoryTotals[0].total, mainCurrency) : "No spending yet"} />
+          </Panel>
+          <Panel title="Accounts">
+            {accounts.slice(0, 3).map((account) => <AccountRow key={account.id} account={account} />)}
+            {!accounts.length && <EmptyState text="Create your first account." />}
+          </Panel>
+          <Panel title="Recent activity">
+            {recent.map((expense) => <ExpenseRow key={expense.id} expense={expense} />)}
+            {!recent.length && <EmptyState text="Add an expense to begin tracking." />}
+          </Panel>
+        </View>
+      );
+    }
     return (
       <View>
         <View style={[styles.metricGrid, compact && styles.oneColumn]}>
           <MetricCard label="Total balance" value={formatMoney(metrics.totalBalance, mainCurrency)} />
           <MetricCard label="This month" value={formatMoney(metrics.monthSpend, mainCurrency)} />
+          <MetricCard label="Revenue" value={formatMoney(metrics.monthRevenue, mainCurrency)} />
           <MetricCard label="Liabilities" value={formatMoney(metrics.liabilities, mainCurrency)} />
         </View>
         <Panel title="Last 28 days">
@@ -615,15 +771,20 @@ export default function App() {
       <View style={[styles.twoColumn, compact && styles.oneColumn]}>
         <Panel title={editingAccountId ? "Edit financial account" : "New financial account"}>
           <Field label="Account name" value={accountForm.name} onChangeText={(name: string) => setAccountForm((current) => ({ ...current, name }))} />
-          <ChoiceRow label="Type" options={accountTypes} value={accountForm.type} onChange={(type) => setAccountForm((current) => ({ ...current, type }))} />
-          <ChoiceRow label="Currency" options={currencies} value={accountForm.currency} onChange={(currency) => setAccountForm((current) => ({ ...current, currency }))} />
+          <SelectField id="account-type" label="Type" options={accountTypes} value={accountForm.type} openSelect={openSelect} setOpenSelect={setOpenSelect} onChange={(type) => setAccountForm((current) => ({ ...current, type, icon: iconForAccountType(type) }))} />
+          <SelectField id="account-currency" label="Currency" options={currencies} value={accountForm.currency} openSelect={openSelect} setOpenSelect={setOpenSelect} onChange={(currency) => setAccountForm((current) => ({ ...current, currency }))} />
           <Field
             label="Balance"
             value={accountForm.balance}
             onChangeText={(balance: string) => setAccountForm((current) => ({ ...current, balance }))}
             keyboardType="decimal-pad"
           />
-          <ChoiceRow label="Icon" options={icons} value={accountForm.icon} onChange={(icon) => setAccountForm((current) => ({ ...current, icon }))} />
+          <View style={styles.autoIconPreview}>
+            <View style={styles.accountIcon}>
+              <Text style={styles.accountIconText}>{iconForAccountType(accountForm.type)}</Text>
+            </View>
+            <Text style={styles.rowMeta}>Assigned icon</Text>
+          </View>
           <View style={styles.formActions}>
             <PrimaryButton label="Save account" onPress={saveAccount} />
             <SecondaryButton label="Clear" onPress={resetAccountForm} />
@@ -643,15 +804,15 @@ export default function App() {
     return (
       <View style={[styles.twoColumn, compact && styles.oneColumn]}>
         <Panel title="Track expense">
-          <ChoiceRow label="Account" options={accounts.map((account) => account.id)} labels={Object.fromEntries(accounts.map((account) => [account.id, account.name]))} value={expenseForm.accountId} onChange={(accountId) => setExpenseForm((current) => ({ ...current, accountId }))} />
-          <ChoiceRow label="Category" options={categories} value={expenseForm.category} onChange={(category) => setExpenseForm((current) => ({ ...current, category }))} />
+          <SelectField id="expense-account" label="Account" options={accounts.map((account) => account.id)} labels={Object.fromEntries(accounts.map((account) => [account.id, account.name]))} value={expenseForm.accountId} openSelect={openSelect} setOpenSelect={setOpenSelect} onChange={(accountId) => setExpenseForm((current) => ({ ...current, accountId }))} />
+          <SelectField id="expense-category" label="Category" options={categories} value={expenseForm.category} openSelect={openSelect} setOpenSelect={setOpenSelect} onChange={(category) => setExpenseForm((current) => ({ ...current, category }))} />
           <Field label="Amount" value={expenseForm.amount} onChangeText={(amount: string) => setExpenseForm((current) => ({ ...current, amount }))} keyboardType="decimal-pad" />
           <Field label="Date" value={expenseForm.date} onChangeText={(date: string) => setExpenseForm((current) => ({ ...current, date }))} placeholder="YYYY-MM-DD" />
           <Field label="Note" value={expenseForm.note} onChangeText={(note: string) => setExpenseForm((current) => ({ ...current, note }))} />
           <PrimaryButton label="Add expense" onPress={addExpense} />
         </Panel>
         <Panel title="Expense history">
-          <ChoiceRow label="Filter" options={["all", ...accounts.map((account) => account.id)]} labels={{ all: "All accounts", ...Object.fromEntries(accounts.map((account) => [account.id, account.name])) }} value={expenseFilter} onChange={setExpenseFilter} />
+          <SelectField id="expense-filter" label="Filter" options={["all", ...accounts.map((account) => account.id)]} labels={{ all: "All accounts", ...Object.fromEntries(accounts.map((account) => [account.id, account.name])) }} value={expenseFilter} openSelect={openSelect} setOpenSelect={setOpenSelect} onChange={setExpenseFilter} />
           {filteredExpenses.map((expense) => <ExpenseRow key={expense.id} expense={expense} />)}
           {!filteredExpenses.length && <EmptyState text="No expenses match this account." />}
         </Panel>
@@ -659,8 +820,70 @@ export default function App() {
     );
   }
 
+  function renderRevenue() {
+    const recentRevenue = filteredRevenues.slice(0, 8);
+    return (
+      <View style={[styles.twoColumn, compact && styles.oneColumn]}>
+        <Panel title="Track revenue">
+          <SelectField id="revenue-account" label="Account" options={accounts.map((account) => account.id)} labels={Object.fromEntries(accounts.map((account) => [account.id, account.name]))} value={revenueForm.accountId} openSelect={openSelect} setOpenSelect={setOpenSelect} onChange={(accountId) => setRevenueForm((current) => ({ ...current, accountId }))} />
+          <SelectField id="revenue-source" label="Source" options={revenueSources} value={revenueForm.source} openSelect={openSelect} setOpenSelect={setOpenSelect} onChange={(source) => setRevenueForm((current) => ({ ...current, source }))} />
+          <Field label="Amount" value={revenueForm.amount} onChangeText={(amount: string) => setRevenueForm((current) => ({ ...current, amount }))} keyboardType="decimal-pad" />
+          <Field label="Date" value={revenueForm.date} onChangeText={(date: string) => setRevenueForm((current) => ({ ...current, date }))} placeholder="YYYY-MM-DD" />
+          <Field label="Note" value={revenueForm.note} onChangeText={(note: string) => setRevenueForm((current) => ({ ...current, note }))} />
+          <PrimaryButton label="Add revenue" onPress={addRevenue} />
+        </Panel>
+        <Panel title="Revenue history">
+          <SelectField id="revenue-filter" label="Filter" options={["all", ...accounts.map((account) => account.id)]} labels={{ all: "All accounts", ...Object.fromEntries(accounts.map((account) => [account.id, account.name])) }} value={revenueFilter} openSelect={openSelect} setOpenSelect={setOpenSelect} onChange={setRevenueFilter} />
+          {recentRevenue.map((revenue) => <RevenueRow key={revenue.id} revenue={revenue} />)}
+          {!recentRevenue.length && <EmptyState text="No revenue has been tracked yet." />}
+        </Panel>
+      </View>
+    );
+  }
+
   function renderAnalytics() {
     const max = Math.max(...categoryTotals.map((item) => item.total), 1);
+    if (compact) {
+      return (
+        <View style={styles.mobileStudio}>
+          <View style={styles.mobileHero}>
+            <Text style={styles.mobileHeroLabel}>Monthly performance</Text>
+            <Text style={styles.mobileHeroValue}>{formatMoney(metrics.netFlow, mainCurrency)}</Text>
+            <View style={styles.mobileHeroStats}>
+              <View>
+                <Text style={styles.mobileStatLabel}>Revenue</Text>
+                <Text style={styles.mobileStatValue}>{formatMoney(metrics.monthRevenue, mainCurrency)}</Text>
+              </View>
+              <View>
+                <Text style={styles.mobileStatLabel}>Expenses</Text>
+                <Text style={styles.mobileStatValue}>{formatMoney(metrics.monthSpend, mainCurrency)}</Text>
+              </View>
+              <View>
+                <Text style={styles.mobileStatLabel}>Entries</Text>
+                <Text style={styles.mobileStatValue}>{String(expenses.length + revenues.length)}</Text>
+              </View>
+            </View>
+          </View>
+          <Panel title="Spending by category">
+            {categoryTotals.map((item) => (
+              <View key={item.category} style={styles.barItem}>
+                <View style={styles.barLabel}>
+                  <Text style={styles.barText}>{item.category}</Text>
+                  <Text style={styles.barText}>{formatMoney(item.total, mainCurrency)}</Text>
+                </View>
+                <View style={styles.barLine}>
+                  <View style={[styles.barFill, { width: `${(item.total / max) * 100}%` }]} />
+                </View>
+              </View>
+            ))}
+            {!categoryTotals.length && <EmptyState text="No spending categories yet." />}
+          </Panel>
+          <Panel title="Insight">
+            <Text style={styles.insightText}>{generateInsight(expenses, accounts, mainCurrency)}</Text>
+          </Panel>
+        </View>
+      );
+    }
     return (
       <View style={[styles.twoColumn, compact && styles.oneColumn]}>
         <Panel title="Spending by category">
@@ -677,8 +900,35 @@ export default function App() {
           ))}
           {!categoryTotals.length && <EmptyState text="No spending categories yet." />}
         </Panel>
-        <Panel title="AI insight">
+        <Panel title="Insight">
           <Text style={styles.insightText}>{generateInsight(expenses, accounts, mainCurrency)}</Text>
+        </Panel>
+      </View>
+    );
+  }
+
+  function renderSettings() {
+    return (
+      <View style={[styles.twoColumn, compact && styles.oneColumn]}>
+        <Panel title="Basic settings">
+          <SelectField id="setting-currency" label="Default currency" options={currencies} value={settingsForm.defaultCurrency} openSelect={openSelect} setOpenSelect={setOpenSelect} onChange={(defaultCurrency) => setSettingsForm((current) => ({ ...current, defaultCurrency }))} />
+          <SelectField id="setting-view" label="Default view" options={["dashboard", "accounts", "expenses", "revenue", "analytics"]} labels={{ dashboard: "Dashboard", accounts: "Accounts", expenses: "Expenses", revenue: "Revenue", analytics: "Analytics" }} value={settingsForm.defaultView} openSelect={openSelect} setOpenSelect={setOpenSelect} onChange={(defaultView) => setSettingsForm((current) => ({ ...current, defaultView }))} />
+          <SelectField id="setting-summary" label="Compact summary" options={["On", "Off"]} value={settingsForm.compactSummary} openSelect={openSelect} setOpenSelect={setOpenSelect} onChange={(compactSummary) => setSettingsForm((current) => ({ ...current, compactSummary }))} />
+          <View style={styles.formActions}>
+            <PrimaryButton label="Save settings" onPress={saveSettings} />
+            <SecondaryButton label="Sign out" onPress={signOut} />
+          </View>
+        </Panel>
+        <Panel title="Account defaults">
+          <View style={styles.row}>
+            <View style={styles.accountIcon}>
+              <Text style={styles.accountIconText}>{iconForAccountType(accountForm.type)}</Text>
+            </View>
+            <View style={styles.rowBody}>
+              <Text style={styles.rowTitle}>{accountForm.type}</Text>
+              <Text style={styles.rowMeta}>{settingsForm.defaultCurrency}</Text>
+            </View>
+          </View>
         </Panel>
       </View>
     );
@@ -692,7 +942,7 @@ export default function App() {
     return (
       <View style={styles.row}>
         <View style={styles.accountIcon}>
-          <Text style={styles.accountIconText}>{account.icon}</Text>
+          <Text style={styles.accountIconText}>{iconForAccountType(account.type)}</Text>
         </View>
         <View style={styles.rowBody}>
           <Text style={styles.rowTitle}>{account.name}</Text>
@@ -726,6 +976,22 @@ export default function App() {
       </View>
     );
   }
+
+  function RevenueRow({ revenue }: { revenue: Revenue }) {
+    const account = accounts.find((item) => item.id === revenue.accountId);
+    return (
+      <View style={styles.row}>
+        <View style={styles.revenueIcon}>
+          <Text style={styles.revenueIconText}>IN</Text>
+        </View>
+        <View style={styles.rowBody}>
+          <Text style={styles.rowTitle}>{revenue.source}</Text>
+          <Text style={styles.rowMeta}>{account?.name || "Deleted account"} - {revenue.note || "No note"} - {revenue.date}</Text>
+        </View>
+        <Text style={styles.positiveValue}>{formatMoney(revenue.amount, account?.currency || mainCurrency)}</Text>
+      </View>
+    );
+  }
 }
 
 function Field(props: React.ComponentProps<typeof TextInput> & { label: string }) {
@@ -738,17 +1004,50 @@ function Field(props: React.ComponentProps<typeof TextInput> & { label: string }
   );
 }
 
-function ChoiceRow({ label, options, labels = {}, value, onChange }: { label: string; options: string[]; labels?: Record<string, string>; value: string; onChange: (value: string) => void }) {
+function SelectField({
+  id,
+  label,
+  options,
+  labels = {},
+  value,
+  openSelect,
+  setOpenSelect,
+  onChange
+}: {
+  id: string;
+  label: string;
+  options: string[];
+  labels?: Record<string, string>;
+  value: string;
+  openSelect: string | null;
+  setOpenSelect: (id: string | null) => void;
+  onChange: (value: string) => void;
+}) {
+  const open = openSelect === id;
+  const display = labels[value] || value || "Choose";
   return (
-    <View style={styles.field}>
+    <View style={[styles.field, styles.selectField, open && styles.selectFieldOpen]}>
       <Text style={styles.label}>{label}</Text>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.choiceRow}>
-        {options.map((option) => (
-          <Pressable key={option} onPress={() => onChange(option)} style={[styles.choice, value === option && styles.choiceActive]}>
-            <Text style={[styles.choiceText, value === option && styles.choiceTextActive]}>{labels[option] || option}</Text>
-          </Pressable>
-        ))}
-      </ScrollView>
+      <Pressable onPress={() => setOpenSelect(open ? null : id)} style={styles.selectButton}>
+        <Text style={styles.selectButtonText}>{display}</Text>
+        <Text style={styles.selectChevron}>{open ? "Up" : "Down"}</Text>
+      </Pressable>
+      {open && (
+        <ScrollView style={styles.selectMenu} nestedScrollEnabled>
+          {options.map((option) => (
+            <Pressable
+              key={option}
+              onPress={() => {
+                onChange(option);
+                setOpenSelect(null);
+              }}
+              style={[styles.selectOption, value === option && styles.selectOptionActive]}
+            >
+              <Text style={[styles.selectOptionText, value === option && styles.selectOptionTextActive]}>{labels[option] || option}</Text>
+            </Pressable>
+          ))}
+        </ScrollView>
+      )}
     </View>
   );
 }
@@ -837,7 +1136,7 @@ function SideNav({ activeView, setActiveView, signOut }: { activeView: ViewName;
         <Text style={styles.sideBrandName}>My Money</Text>
       </View>
       <View style={styles.navList}>
-        {(["dashboard", "accounts", "expenses", "analytics"] as ViewName[]).map((view) => (
+        {(["dashboard", "accounts", "expenses", "revenue", "analytics", "settings"] as ViewName[]).map((view) => (
           <Pressable key={view} onPress={() => setActiveView(view)} style={[styles.navItem, activeView === view && styles.navItemActive]}>
             <Text style={[styles.navText, activeView === view && styles.navTextActive]}>{titleFor(view)}</Text>
           </Pressable>
@@ -848,17 +1147,14 @@ function SideNav({ activeView, setActiveView, signOut }: { activeView: ViewName;
   );
 }
 
-function BottomNav({ activeView, setActiveView, signOut }: { activeView: ViewName; setActiveView: (view: ViewName) => void; signOut: () => void }) {
+function BottomNav({ activeView, setActiveView }: { activeView: ViewName; setActiveView: (view: ViewName) => void }) {
   return (
     <View style={styles.bottomNav}>
-      {(["dashboard", "accounts", "expenses", "analytics"] as ViewName[]).map((view) => (
+      {(["dashboard", "accounts", "expenses", "revenue", "analytics", "settings"] as ViewName[]).map((view) => (
         <Pressable key={view} onPress={() => setActiveView(view)} style={[styles.bottomItem, activeView === view && styles.bottomItemActive]}>
           <Text style={[styles.bottomText, activeView === view && styles.bottomTextActive]}>{titleFor(view).split(" ")[0]}</Text>
         </Pressable>
       ))}
-      <Pressable onPress={signOut} style={styles.bottomItem}>
-        <Text style={styles.bottomText}>Out</Text>
-      </Pressable>
     </View>
   );
 }
@@ -888,7 +1184,9 @@ function titleFor(view: ViewName) {
     dashboard: "Dashboard",
     accounts: "Accounts",
     expenses: "Expenses",
-    analytics: "AI analytics"
+    revenue: "Revenue",
+    analytics: "Analytics",
+    settings: "Settings"
   };
   return titles[view];
 }
@@ -950,7 +1248,7 @@ function seedAccount(userId: string): Account {
     type: "Cash",
     currency: "USD",
     balance: 0,
-    icon: "M"
+    icon: iconForAccountType("Cash")
   };
 }
 
@@ -962,7 +1260,7 @@ function accountFromRow(row: any): Account {
     type: row.type,
     currency: row.currency,
     balance: Number(row.balance || 0),
-    icon: row.icon || "M"
+    icon: row.icon || iconForAccountType(row.type)
   };
 }
 
@@ -972,6 +1270,18 @@ function expenseFromRow(row: any): Expense {
     userId: row.user_id,
     accountId: row.account_id,
     category: row.category,
+    amount: Number(row.amount || 0),
+    date: row.date,
+    note: row.note || ""
+  };
+}
+
+function revenueFromRow(row: any): Revenue {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    accountId: row.account_id,
+    source: row.source,
     amount: Number(row.amount || 0),
     date: row.date,
     note: row.note || ""
@@ -1000,6 +1310,22 @@ function expenseToRow(expense: Expense) {
     date: expense.date,
     note: expense.note
   };
+}
+
+function revenueToRow(revenue: Revenue) {
+  return {
+    id: revenue.id,
+    user_id: revenue.userId,
+    account_id: revenue.accountId,
+    source: revenue.source,
+    amount: revenue.amount,
+    date: revenue.date,
+    note: revenue.note
+  };
+}
+
+function iconForAccountType(type: string) {
+  return accountTypeIcons[type] || type.slice(0, 2).toUpperCase();
 }
 
 const styles = StyleSheet.create({
@@ -1047,15 +1373,17 @@ const styles = StyleSheet.create({
   navItemActive: { backgroundColor: "rgba(255,255,255,0.16)" },
   navText: { color: "rgba(255,255,255,0.76)", fontWeight: "800" },
   navTextActive: { color: "#fff" },
-  bottomNav: { position: "absolute", left: 0, right: 0, bottom: 0, minHeight: 74, padding: 8, backgroundColor: "#10231f", flexDirection: "row", gap: 6 },
-  bottomItem: { flex: 1, borderRadius: 7, alignItems: "center", justifyContent: "center" },
+  bottomNav: { position: "absolute", left: 0, right: 0, bottom: 0, minHeight: 74, padding: 6, backgroundColor: "#10231f", flexDirection: "row", gap: 3 },
+  bottomItem: { flex: 1, minWidth: 0, borderRadius: 7, alignItems: "center", justifyContent: "center", paddingHorizontal: 2 },
   bottomItemActive: { backgroundColor: "rgba(255,255,255,0.16)" },
-  bottomText: { color: "rgba(255,255,255,0.76)", fontWeight: "800", fontSize: 12 },
+  bottomText: { color: "rgba(255,255,255,0.76)", fontWeight: "800", fontSize: 10, textAlign: "center" },
   bottomTextActive: { color: "#fff" },
   content: { flex: 1 },
   contentInner: { padding: 28, gap: 14 },
+  contentInnerPhone: { padding: 14, paddingBottom: 92 },
   topBar: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
-  topBarPhone: { alignItems: "flex-start" },
+  topBarPhone: { alignItems: "flex-start", paddingHorizontal: 2 },
+  headerActions: { flexDirection: "row", gap: 10, alignItems: "center" },
   eyebrow: { color: "#66736f", fontSize: 12, fontWeight: "900", textTransform: "uppercase" },
   screenTitle: { color: "#13201d", fontSize: 30, fontWeight: "900" },
   metricGrid: { flexDirection: "row", gap: 14 },
@@ -1067,30 +1395,47 @@ const styles = StyleSheet.create({
   metricLabel: { color: "#66736f", marginBottom: 10, fontWeight: "800" },
   metricValue: { color: "#13201d", fontSize: 28, fontWeight: "900" },
   metricDetail: { marginTop: 10, color: "#66736f", fontWeight: "700", lineHeight: 20 },
-  panel: { flex: 1, padding: 16, borderWidth: 1, borderColor: "#d8dfdc", borderRadius: 8, backgroundColor: "#fff", marginBottom: 14 },
+  mobileStudio: { gap: 12 },
+  mobileHero: { padding: 18, borderWidth: 1, borderColor: "#d8dfdc", borderRadius: 8, backgroundColor: "#fff", gap: 14 },
+  mobileHeroLabel: { color: "#66736f", fontSize: 12, fontWeight: "900", textTransform: "uppercase" },
+  mobileHeroValue: { color: "#13201d", fontSize: 34, lineHeight: 40, fontWeight: "900" },
+  mobileHeroStats: { flexDirection: "row", justifyContent: "space-between", gap: 8, paddingTop: 4 },
+  mobileStatLabel: { color: "#66736f", fontSize: 11, fontWeight: "800" },
+  mobileStatValue: { color: "#13201d", marginTop: 4, fontSize: 13, fontWeight: "900" },
+  quickActions: { flexDirection: "row", gap: 8, flexWrap: "wrap" },
+  panel: { flex: 1, padding: 16, borderWidth: 1, borderColor: "#d8dfdc", borderRadius: 8, backgroundColor: "#fff", marginBottom: 14, overflow: "visible" },
   panelHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
   panelTitle: { color: "#13201d", fontSize: 16, fontWeight: "900" },
   panelBody: { marginTop: 14, gap: 10 },
   iconButton: { width: 38, height: 38, borderRadius: 7, backgroundColor: "#0f6f5f", alignItems: "center", justifyContent: "center" },
-  iconButtonText: { color: "#fff", fontSize: 20, fontWeight: "900" },
+  iconButtonText: { color: "#fff", fontSize: 12, fontWeight: "900" },
   row: { minHeight: 66, padding: 12, borderWidth: 1, borderColor: "#d8dfdc", borderRadius: 8, backgroundColor: "#fbfcfa", flexDirection: "row", alignItems: "center", gap: 12 },
   accountIcon: { width: 42, height: 42, borderRadius: 8, backgroundColor: "#e9f3ef", alignItems: "center", justifyContent: "center" },
   accountIconText: { color: "#0f6f5f", fontWeight: "900", fontSize: 18 },
+  revenueIcon: { width: 42, height: 42, borderRadius: 8, backgroundColor: "#eaf5dc", alignItems: "center", justifyContent: "center" },
+  revenueIconText: { color: "#51751c", fontWeight: "900", fontSize: 14 },
   rowBody: { flex: 1 },
   rowTitle: { color: "#13201d", fontWeight: "900" },
   rowMeta: { color: "#66736f", fontSize: 12, marginTop: 3 },
   rowRight: { alignItems: "flex-end", gap: 8 },
   rowValue: { color: "#13201d", fontWeight: "900", textAlign: "right" },
+  positiveValue: { color: "#51751c", fontWeight: "900", textAlign: "right" },
   rowActions: { flexDirection: "row", gap: 8 },
   miniButton: { minHeight: 32, borderWidth: 1, borderColor: "#d8dfdc", borderRadius: 6, backgroundColor: "#fff", alignItems: "center", justifyContent: "center", paddingHorizontal: 10 },
   miniButtonText: { color: "#13201d", fontWeight: "900" },
   dangerText: { color: "#cf4b5c" },
   formActions: { flexDirection: "row", gap: 10, flexWrap: "wrap" },
-  choiceRow: { gap: 8, paddingRight: 8 },
-  choice: { minHeight: 38, borderWidth: 1, borderColor: "#d8dfdc", borderRadius: 7, backgroundColor: "#fff", paddingHorizontal: 12, alignItems: "center", justifyContent: "center" },
-  choiceActive: { backgroundColor: "#0f6f5f", borderColor: "#0f6f5f" },
-  choiceText: { color: "#13201d", fontWeight: "800" },
-  choiceTextActive: { color: "#fff" },
+  autoIconPreview: { flexDirection: "row", alignItems: "center", gap: 10 },
+  selectField: { position: "relative", zIndex: 1 },
+  selectFieldOpen: { zIndex: 20 },
+  selectButton: { minHeight: 44, borderWidth: 1, borderColor: "#d8dfdc", borderRadius: 7, backgroundColor: "#fff", paddingHorizontal: 12, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
+  selectButtonText: { color: "#13201d", fontWeight: "800", flex: 1 },
+  selectChevron: { color: "#66736f", fontSize: 11, fontWeight: "900", textTransform: "uppercase" },
+  selectMenu: { position: "absolute", top: 72, left: 0, right: 0, maxHeight: 220, borderWidth: 1, borderColor: "#d8dfdc", borderRadius: 7, backgroundColor: "#fff", zIndex: 30 },
+  selectOption: { minHeight: 40, justifyContent: "center", paddingHorizontal: 12, borderBottomWidth: 1, borderBottomColor: "#eef2ef" },
+  selectOptionActive: { backgroundColor: "#e9f3ef" },
+  selectOptionText: { color: "#13201d", fontWeight: "800" },
+  selectOptionTextActive: { color: "#0f6f5f" },
   emptyState: { padding: 22, borderWidth: 1, borderStyle: "dashed", borderColor: "#d8dfdc", borderRadius: 8, alignItems: "center" },
   emptyText: { color: "#66736f", fontWeight: "800", textAlign: "center" },
   barItem: { gap: 8 },
