@@ -21,7 +21,7 @@ import { createClient, SupabaseClient, User } from "@supabase/supabase-js";
 declare const process: { env: Record<string, string | undefined> };
 
 type ViewName = "dashboard" | "accounts" | "expenses" | "analytics";
-type AuthMode = "signin" | "signup" | "reset";
+type AuthMode = "signin" | "signup" | "reset" | "recover";
 
 type Account = {
   id: string;
@@ -90,7 +90,7 @@ const supabase: SupabaseClient | null =
           storage: AsyncStorage,
           autoRefreshToken: true,
           persistSession: true,
-          detectSessionInUrl: false
+          detectSessionInUrl: Platform.OS === "web"
         }
       })
     : null;
@@ -184,7 +184,14 @@ export default function App() {
           setUser(data.session.user);
           await loadRemoteData(data.session.user.id);
         }
-        supabase.auth.onAuthStateChange(async (_event, session) => {
+        supabase.auth.onAuthStateChange(async (event, session) => {
+          if (event === "PASSWORD_RECOVERY") {
+            setAuthMode("recover");
+            setNotice("Choose a new password.");
+            setUser(null);
+            return;
+          }
+
           setUser(session?.user || null);
           if (session?.user) await loadRemoteData(session.user.id);
           else {
@@ -239,7 +246,14 @@ export default function App() {
     setAuthBusy(true);
     try {
       if (supabase) {
-        if (authMode === "signup") {
+        if (authMode === "recover") {
+          const { error } = await supabase.auth.updateUser({ password });
+          if (error) throw error;
+          await supabase.auth.signOut();
+          setAuthForm((current) => ({ ...current, password: "", confirmPassword: "" }));
+          setAuthMode("signin");
+          setNotice("Password updated. Sign in with your new password.");
+        } else if (authMode === "signup") {
           const { data, error } = await supabase.auth.signUp({
             email,
             password,
@@ -307,6 +321,11 @@ export default function App() {
   }
 
   function validateAuthForm(email: string, password: string) {
+    if (authMode === "recover") {
+      if (password.length < 8) return "Password must be at least 8 characters.";
+      if (password !== authForm.confirmPassword) return "Passwords do not match.";
+      return "";
+    }
     if (!email) return "Enter your email address.";
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return "Enter a valid email address.";
     if (authMode === "reset") return "";
@@ -469,11 +488,13 @@ export default function App() {
             </View>
           </View>
           <View style={styles.authCard}>
-            <View style={styles.tabs}>
-              {(["signin", "signup"] as AuthMode[]).map((mode) => (
-                <TabButton key={mode} active={authMode === mode} label={modeLabel(mode)} onPress={() => setAuthMode(mode)} />
-              ))}
-            </View>
+            {authMode !== "recover" && (
+              <View style={styles.tabs}>
+                {(["signin", "signup"] as AuthMode[]).map((mode) => (
+                  <TabButton key={mode} active={authMode === mode} label={modeLabel(mode)} onPress={() => setAuthMode(mode)} />
+                ))}
+              </View>
+            )}
             <Notice text={notice} />
             {authMode === "signup" && (
               <Field
@@ -483,27 +504,29 @@ export default function App() {
                 autoComplete="name"
               />
             )}
-            <Field
-              label="Email"
-              value={authForm.email}
-              onChangeText={(email: string) => setAuthForm((current) => ({ ...current, email }))}
-              keyboardType="email-address"
-              autoCapitalize="none"
-              autoComplete="email"
-              textContentType="emailAddress"
-            />
+            {authMode !== "recover" && (
+              <Field
+                label="Email"
+                value={authForm.email}
+                onChangeText={(email: string) => setAuthForm((current) => ({ ...current, email }))}
+                keyboardType="email-address"
+                autoCapitalize="none"
+                autoComplete="email"
+                textContentType="emailAddress"
+              />
+            )}
             {authMode !== "reset" && (
               <Field
                 label="Password"
                 value={authForm.password}
                 onChangeText={(password: string) => setAuthForm((current) => ({ ...current, password }))}
                 secureTextEntry
-                autoComplete={authMode === "signup" ? "new-password" : "current-password"}
-                textContentType={authMode === "signup" ? "newPassword" : "password"}
+                autoComplete={authMode === "signin" ? "current-password" : "new-password"}
+                textContentType={authMode === "signin" ? "password" : "newPassword"}
                 onSubmitEditing={handleAuth}
               />
             )}
-            {authMode === "signup" && (
+            {(authMode === "signup" || authMode === "recover") && (
               <Field
                 label="Confirm password"
                 value={authForm.confirmPassword}
@@ -514,7 +537,7 @@ export default function App() {
                 onSubmitEditing={handleAuth}
               />
             )}
-            {authMode === "signup" && <Text style={styles.passwordHint}>Use at least 8 characters.</Text>}
+            {(authMode === "signup" || authMode === "recover") && <Text style={styles.passwordHint}>Use at least 8 characters.</Text>}
             <PrimaryButton label={authButtonLabel(authMode, authBusy)} onPress={handleAuth} disabled={authBusy} />
             <View style={styles.authSwitchRow}>
               <Pressable onPress={() => setAuthMode(authMode === "signin" ? "signup" : "signin")}>
@@ -843,11 +866,13 @@ function BottomNav({ activeView, setActiveView, signOut }: { activeView: ViewNam
 function modeLabel(mode: AuthMode) {
   if (mode === "signin") return "Sign in";
   if (mode === "signup") return "Create";
+  if (mode === "recover") return "Recover";
   return "Reset";
 }
 
 function authButtonLabel(mode: AuthMode, busy: boolean) {
   if (busy) return "Please wait...";
+  if (mode === "recover") return "Update password";
   if (mode === "reset") return "Send reset link";
   if (mode === "signup") return "Create account";
   return "Sign in";
