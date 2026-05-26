@@ -63,12 +63,28 @@ const accountTypes = ["Cash", "Bank account", "Credit card", "Savings", "Investm
 const currencies = ["USD", "ZAR", "EUR", "GBP", "NGN", "KES", "INR"];
 const icons = ["M", "B", "$", "H", "I", "S", "C"];
 
-const supabaseUrl =
-  process.env.EXPO_PUBLIC_SUPABASE_URL || (Constants.expoConfig?.extra?.supabaseUrl as string | undefined) || "";
-const supabaseAnonKey =
-  process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || (Constants.expoConfig?.extra?.supabaseAnonKey as string | undefined) || "";
+const cleanEnvValue = (value: string | undefined) => {
+  const trimmed = value?.trim() || "";
+  return trimmed.startsWith("$") || trimmed.includes("your-project") ? "" : trimmed;
+};
+
+const isValidSupabaseUrl = (value: string) => {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && url.hostname.endsWith(".supabase.co");
+  } catch {
+    return false;
+  }
+};
+
+const supabaseUrl = cleanEnvValue(
+  process.env.EXPO_PUBLIC_SUPABASE_URL || (Constants.expoConfig?.extra?.supabaseUrl as string | undefined)
+);
+const supabaseAnonKey = cleanEnvValue(
+  process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || (Constants.expoConfig?.extra?.supabaseAnonKey as string | undefined)
+);
 const supabase: SupabaseClient | null =
-  supabaseUrl && supabaseAnonKey && !supabaseUrl.includes("your-project")
+  isValidSupabaseUrl(supabaseUrl) && supabaseAnonKey
     ? createClient(supabaseUrl, supabaseAnonKey, {
         auth: {
           storage: AsyncStorage,
