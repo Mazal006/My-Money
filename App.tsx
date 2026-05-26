@@ -21,7 +21,7 @@ import { createClient, SupabaseClient, User } from "@supabase/supabase-js";
 
 declare const process: { env: Record<string, string | undefined> };
 
-type ViewName = "dashboard" | "accounts" | "expenses" | "revenue" | "analytics" | "settings";
+type ViewName = "dashboard" | "accounts" | "expenses" | "revenue" | "analytics" | "budget" | "settings";
 type AuthMode = "signin" | "signup" | "reset" | "recover";
 
 type Account = {
@@ -300,6 +300,7 @@ const iconAssets = {
   expenses: require("./Icons/Expenses_tab_icon/money-transaction.png"),
   revenue: require("./Icons/Revenue_tab_icon/revenue.png"),
   analytics: require("./Icons/Analytics_tab_icon/bar-chart.png"),
+  budget: require("./Icons/My_money_icon/dollar.png"),
   settings: require("./Icons/Settings_icon/setting.png"),
   profile: require("./Icons/Profile_icon/user.png"),
   cash: require("./Icons/Cash_type_icon/money.png"),
@@ -310,6 +311,39 @@ const iconAssets = {
   mobile: require("./Icons/Mobile_Money_type_icon/mobile-banking.png"),
   loan: require("./Icons/Loan_type_icon/signing.png"),
   crypto: require("./Icons/crypto_wallet_type_icon/wallet.png")
+};
+const expenseCategoryIcons: Record<string, any> = {
+  "Food & Drink": require("./Icons/Expenses Categories/Food & Drink/cutlery.png"),
+  Groceries: require("./Icons/Expenses Categories/Groceries_icon/grocery-cart.png"),
+  Transport: require("./Icons/Expenses Categories/transport_icon/transportation.png"),
+  Home: require("./Icons/Expenses Categories/Home_icon/home.png"),
+  "Bills & Fees": require("./Icons/Expenses Categories/Bills_&_Fees_Icon/bill.png"),
+  Education: require("./Icons/Expenses Categories/education_icon/graduation.png"),
+  "Health care": require("./Icons/Expenses Categories/health_care_icon/first-aid-bag-outline.png"),
+  Shopping: require("./Icons/Expenses Categories/shopping_icon/online-shopping.png"),
+  Travel: require("./Icons/Expenses Categories/Travel_icon/travel.png"),
+  Beauty: require("./Icons/Expenses Categories/Beauty_icon/skin-care.png"),
+  Business: require("./Icons/Expenses Categories/Business_icon/owner.png"),
+  Car: require("./Icons/Expenses Categories/Car_Icon/car.png"),
+  Entertainment: require("./Icons/Expenses Categories/Entertainment/cinema.png"),
+  "Family & Personal": require("./Icons/Expenses Categories/Family_&_Personal/family-of-four-with-two-minors-and-two-adults.png"),
+  Gift: require("./Icons/Expenses Categories/Gift_icon/gift-box-with-a-bow.png"),
+  "Internet & Airtime": require("./Icons/Expenses Categories/Internet_&_Airtimes_Icon/signal.png"),
+  "Sport & Hobbies": require("./Icons/Expenses Categories/Sport_&_Hobbies_icon/running.png"),
+  Subscriptions: require("./Icons/Expenses Categories/Subscriptions_Icon/subscribe.png"),
+  Other: require("./Icons/Expenses Categories/Others_icons/cash-in.png")
+};
+const revenueCategoryIcons: Record<string, any> = {
+  Salary: require("./Icons/Revenue Categories/Salary_icon/wages.png"),
+  Business: require("./Icons/Revenue Categories/Business_icon/owner.png"),
+  Freelance: require("./Icons/Revenue Categories/extra_icome_icon/income.png"),
+  Investment: require("./Icons/investment_type_icon/investment.png"),
+  Gift: require("./Icons/Revenue Categories/Gift_icon/gift.png"),
+  Refund: require("./Icons/Revenue Categories/Others_icons/cash-in.png"),
+  Insurance: require("./Icons/Revenue Categories/Insurance_icon/shield.png"),
+  Loans: require("./Icons/Revenue Categories/Loans_Icons/mortgage-loan.png"),
+  "Parental leave": require("./Icons/Revenue Categories/parental_leave_icon/parental-control.png"),
+  Other: require("./Icons/Revenue Categories/Others_icons/cash-in.png")
 };
 
 const cleanEnvValue = (value: string | undefined) => {
@@ -461,6 +495,7 @@ export default function App() {
   }, [settingsForm.defaultCurrency]);
 
   const mainCurrency = settingsForm.defaultCurrency || accounts[0]?.currency || "USD";
+  const activityCurrency = accounts[0]?.currency || "USD";
   const convertAmount = (amount: number, fromCurrency = mainCurrency) => {
     if (fromCurrency === mainCurrency) return Number(amount || 0);
     if (fromCurrency === "EUR") return Number(amount || 0) * (exchangeRates[mainCurrency] || 1);
@@ -475,19 +510,19 @@ export default function App() {
     const inReportRange = (date: string) => new Date(`${date}T00:00:00`) >= reportStart;
     const monthSpend = expenses
       .filter((expense) => expense.date.slice(0, 7) === month)
-      .reduce((sum, expense) => sum + convertAmount(expense.amount, accounts.find((account) => account.id === expense.accountId)?.currency || mainCurrency), 0);
+      .reduce((sum, expense) => sum + expense.amount, 0);
     const monthRevenue = revenues
       .filter((revenue) => revenue.date.slice(0, 7) === month)
-      .reduce((sum, revenue) => sum + convertAmount(revenue.amount, accounts.find((account) => account.id === revenue.accountId)?.currency || mainCurrency), 0);
+      .reduce((sum, revenue) => sum + revenue.amount, 0);
     const periodSpend = expenses
       .filter((expense) => inReportRange(expense.date))
-      .reduce((sum, expense) => sum + convertAmount(expense.amount, accounts.find((account) => account.id === expense.accountId)?.currency || mainCurrency), 0);
+      .reduce((sum, expense) => sum + expense.amount, 0);
     const periodRevenue = revenues
       .filter((revenue) => inReportRange(revenue.date))
-      .reduce((sum, revenue) => sum + convertAmount(revenue.amount, accounts.find((account) => account.id === revenue.accountId)?.currency || mainCurrency), 0);
+      .reduce((sum, revenue) => sum + revenue.amount, 0);
     const totalBalance = accounts.reduce((sum, account) => sum + convertAmount(account.balance, account.currency), 0);
     const liabilities = accounts.reduce((sum, account) => {
-      const balance = convertAmount(Number(account.balance || 0), account.currency);
+      const balance = Number(account.balance || 0);
       return sum + (account.type === "Credit card" ? Math.abs(balance) : Math.max(0, -balance));
     }, 0);
     return { totalBalance, monthSpend, monthRevenue, periodSpend, periodRevenue, netFlow: monthRevenue - monthSpend, liabilities };
@@ -963,6 +998,7 @@ export default function App() {
     setEditingBudgetId(null);
     setBudgetForm({ name: "Monthly budget", amount: "", currency: mainCurrency, accountIds: accounts.map((account) => account.id), startDate: today(), period: "Monthly" });
     setBudgetMode("form");
+    setActiveView("budget");
   }
 
   function addCategory() {
@@ -1127,6 +1163,7 @@ export default function App() {
           {activeView === "expenses" && renderExpenses()}
           {activeView === "revenue" && renderRevenue()}
           {activeView === "analytics" && renderAnalytics()}
+          {activeView === "budget" && renderBudgetPage()}
           {activeView === "settings" && renderSettings()}
         </ScrollView>
         {compact && <BottomNav activeView={activeView} setActiveView={setActiveView} />}
@@ -1135,88 +1172,47 @@ export default function App() {
   );
 
   function renderDashboard() {
-    const recent = filteredExpenses.slice(0, 3);
     if (compact) {
       return (
         <View style={styles.mobileStudio}>
           <View style={styles.mobileHero}>
-            <Text style={styles.mobileHeroLabel}>Current balance</Text>
+            <Text style={styles.mobileHeroLabel}>Cash wallet</Text>
             <Text style={styles.mobileHeroValue}>{formatMoney(metrics.totalBalance, mainCurrency)}</Text>
-            <View style={styles.mobileHeroStats}>
-              <View>
-                <Text style={styles.mobileStatLabel}>Revenue</Text>
-                <Text style={styles.mobileStatValue}>{formatMoney(metrics.monthRevenue, mainCurrency)}</Text>
-              </View>
-              <View>
-                <Text style={styles.mobileStatLabel}>Spend</Text>
-                <Text style={styles.mobileStatValue}>{formatMoney(metrics.monthSpend, mainCurrency)}</Text>
-              </View>
-              <View>
-                <Text style={styles.mobileStatLabel}>Net</Text>
-                <Text style={styles.mobileStatValue}>{formatMoney(metrics.netFlow, mainCurrency)}</Text>
-              </View>
-            </View>
+            <Text style={styles.rateText}>{exchangeDate ? `Converted with latest rates from ${exchangeDate}.` : "Total balance follows the currency selected in settings."}</Text>
           </View>
           <View style={styles.quickActions}>
-            <MiniButton label="Add expense" onPress={() => setActiveView("expenses")} />
-            <MiniButton label="Add revenue" onPress={() => setActiveView("revenue")} />
-            <MiniButton label="Budget" onPress={resetBudgetForm} />
+            <PrimaryButton label="Create budget" onPress={resetBudgetForm} />
+            <SecondaryButton label="View budgets" onPress={() => { setBudgetMode("list"); setActiveView("budget"); }} />
           </View>
-          {renderBudgetSection()}
           {renderReportCards()}
-          <Panel title="Overview">
-            <MetricCard compact label="Last 28 days" value={formatMoney(lastDaysExpenses(28), mainCurrency)} detail={`${recentItems(expenses, 28).length} expense entries`} />
-            <MetricCard compact label="Top category" value={categoryTotals[0]?.category || "None"} detail={categoryTotals[0] ? formatMoney(categoryTotals[0].total, mainCurrency) : "No spending yet"} />
-          </Panel>
-          <Panel title="Accounts">
-            {accounts.slice(0, 3).map((account) => <AccountRow key={account.id} account={account} />)}
-            {!accounts.length && <EmptyState text="Create your first account." />}
-          </Panel>
-          <Panel title="Recent activity">
-            {recent.map((expense) => <ExpenseRow key={expense.id} expense={expense} />)}
-            {!recent.length && <EmptyState text="Add an expense to begin tracking." />}
-          </Panel>
         </View>
       );
     }
     return (
       <View>
-        <View style={[styles.metricGrid, compact && styles.oneColumn]}>
-          <MetricCard label="Total balance" value={formatMoney(metrics.totalBalance, mainCurrency)} />
-          <MetricCard label="Total period expenses" value={formatMoney(metrics.periodSpend, mainCurrency)} />
-          <MetricCard label="Total period revenue" value={formatMoney(metrics.periodRevenue, mainCurrency)} />
-          <MetricCard label="Liabilities" value={formatMoney(metrics.liabilities, mainCurrency)} />
+        <View style={styles.dashboardHeroRow}>
+          <View style={styles.balancePanel}>
+            <Text style={styles.mobileHeroLabel}>Cash wallet</Text>
+            <Text style={styles.mobileHeroValue}>{formatMoney(metrics.totalBalance, mainCurrency)}</Text>
+            <Text style={styles.rateText}>{exchangeDate ? `Converted with latest rates from ${exchangeDate}.` : "Total balance follows the currency selected in settings."}</Text>
+          </View>
+          <View style={styles.budgetActionPanel}>
+            <PrimaryButton label="Create budget" onPress={resetBudgetForm} />
+            <SecondaryButton label="View budgets" onPress={() => { setBudgetMode("list"); setActiveView("budget"); }} />
+          </View>
         </View>
         {renderReportCards()}
-        {renderBudgetSection()}
-        <Panel title="Last 28 days">
-          <View style={[styles.summaryGrid, phone && styles.oneColumn]}>
-            <MetricCard compact label="Expenses" value={formatMoney(lastDaysExpenses(28), mainCurrency)} detail={`${recentItems(expenses, 28).length} tracked entries`} />
-            <MetricCard compact label="Top category" value={categoryTotals[0]?.category || "None"} detail={categoryTotals[0] ? formatMoney(categoryTotals[0].total, mainCurrency) : "No spending yet"} />
-          </View>
-        </Panel>
-        <View style={[styles.twoColumn, compact && styles.oneColumn]}>
-          <Panel title="Financial accounts" action={<IconButton label="+" onPress={() => setActiveView("accounts")} />}>
-            {accounts.slice(0, 3).map((account) => <AccountRow key={account.id} account={account} />)}
-            {!accounts.length && <EmptyState text="Create your first account." />}
-          </Panel>
-          <Panel title="Recent expenses">
-            {recent.map((expense) => <ExpenseRow key={expense.id} expense={expense} />)}
-            {!recent.length && <EmptyState text="Add an expense to begin tracking." />}
-          </Panel>
-        </View>
       </View>
     );
   }
 
   function renderReportCards() {
     return (
-      <Panel
-        title="Period statistics"
-        action={
-        <SelectField
+      <Panel title="Period statistics">
+        <View style={styles.periodPickerRow}>
+          <SelectField
             id="report-range"
-            label=""
+            label="Period"
             compact
             options={reportRanges}
             labels={{ "30": "30 days", "90": "90 days", "365": "1 year", "730": "2 years" }}
@@ -1225,17 +1221,18 @@ export default function App() {
             setOpenSelect={setOpenSelect}
             onChange={setReportRange}
           />
-        }
-      >
-        <View style={[styles.summaryGrid, phone && styles.oneColumn]}>
-          <MetricCard compact label="Total balance" value={formatMoney(metrics.totalBalance, mainCurrency)} />
-          <MetricCard compact label="Total period expenses" value={formatMoney(metrics.periodSpend, mainCurrency)} />
-          <MetricCard compact label="Total period revenue" value={formatMoney(metrics.periodRevenue, mainCurrency)} />
-          <MetricCard compact label="Liability" value={formatMoney(metrics.liabilities, mainCurrency)} />
         </View>
-        {exchangeDate ? <Text style={styles.rateText}>Converted with latest rates from {exchangeDate}.</Text> : null}
+        <View style={[styles.summaryGrid, phone && styles.oneColumn]}>
+          <MetricCard compact label="Total period expenses" value={formatMoney(metrics.periodSpend, activityCurrency)} />
+          <MetricCard compact label="Total period revenue" value={formatMoney(metrics.periodRevenue, activityCurrency)} />
+          <MetricCard compact label="Liability" value={formatMoney(metrics.liabilities, activityCurrency)} />
+        </View>
       </Panel>
     );
+  }
+
+  function renderBudgetPage() {
+    return <View>{renderBudgetSection()}</View>;
   }
 
   function renderBudgetSection() {
@@ -1522,9 +1519,9 @@ export default function App() {
             </Panel>
             <Panel title="All categories">
               <Text style={styles.label}>Expense categories</Text>
-              {expenseCategories.map((category) => <CategoryRow key={category} name={category} onDelete={() => removeCategory("expense", category)} />)}
+              {expenseCategories.map((category) => <CategoryRow key={category} kind="expense" name={category} onDelete={() => removeCategory("expense", category)} />)}
               <Text style={styles.label}>Revenue categories</Text>
-              {revenueCategoriesState.map((category) => <CategoryRow key={category} name={category} onDelete={() => removeCategory("revenue", category)} />)}
+              {revenueCategoriesState.map((category) => <CategoryRow key={category} kind="revenue" name={category} onDelete={() => removeCategory("revenue", category)} />)}
               <PrimaryButton label="Save categories" onPress={saveSettings} />
             </Panel>
           </View>
@@ -1576,7 +1573,7 @@ export default function App() {
     return (
       <View style={styles.row}>
         <View style={styles.accountIcon}>
-          <Text style={styles.accountIconText}>{expense.category.slice(0, 1)}</Text>
+          <Image source={assetForExpenseCategory(expense.category)} style={styles.smallIcon} />
         </View>
         <View style={styles.rowBody}>
           <Text style={styles.rowTitle}>{expense.category}</Text>
@@ -1592,7 +1589,7 @@ export default function App() {
     return (
       <View style={styles.row}>
         <View style={styles.revenueIcon}>
-          <Text style={styles.revenueIconText}>IN</Text>
+          <Image source={assetForRevenueCategory(revenue.source)} style={styles.smallIcon} />
         </View>
         <View style={styles.rowBody}>
           <Text style={styles.rowTitle}>{revenue.source}</Text>
@@ -1603,11 +1600,11 @@ export default function App() {
     );
   }
 
-  function CategoryRow({ name, onDelete }: { name: string; onDelete: () => void }) {
+  function CategoryRow({ kind, name, onDelete }: { kind: "expense" | "revenue"; name: string; onDelete: () => void }) {
     return (
       <View style={styles.row}>
         <View style={styles.accountIcon}>
-          <Text style={styles.accountIconText}>{name.slice(0, 2).toUpperCase()}</Text>
+          <Image source={kind === "expense" ? assetForExpenseCategory(name) : assetForRevenueCategory(name)} style={styles.smallIcon} />
         </View>
         <View style={styles.rowBody}>
           <Text style={styles.rowTitle}>{name}</Text>
@@ -1666,7 +1663,7 @@ function SelectField({
       {label ? <Text style={styles.label}>{label}</Text> : null}
       <Pressable onPress={() => setOpenSelect(open ? null : id)} style={[styles.selectButton, compact && styles.selectButtonCompact]}>
         <Text style={styles.selectButtonText}>{display}</Text>
-        <Text style={styles.selectChevron}>{open ? "Up" : "Down"}</Text>
+        <Text style={styles.selectChevron}>{open ? "⌃" : "⌄"}</Text>
       </Pressable>
       {open && (
         <ScrollView style={styles.selectMenu} nestedScrollEnabled>
@@ -1857,6 +1854,7 @@ function titleFor(view: ViewName) {
     expenses: "Expenses",
     revenue: "Revenue",
     analytics: "Analytics",
+    budget: "Budget",
     settings: "Settings"
   };
   return titles[view];
@@ -2073,6 +2071,14 @@ function assetForAccountType(type: string) {
   return assets[type] || iconAssets.cash;
 }
 
+function assetForExpenseCategory(category: string) {
+  return expenseCategoryIcons[category] || expenseCategoryIcons.Other;
+}
+
+function assetForRevenueCategory(category: string) {
+  return revenueCategoryIcons[category] || revenueCategoryIcons.Other;
+}
+
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: "#f7f8f5" },
   loading: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: "#f7f8f5" },
@@ -2157,6 +2163,10 @@ const styles = StyleSheet.create({
   mobileStatLabel: { color: "#66736f", fontSize: 11, fontWeight: "800" },
   mobileStatValue: { color: "#13201d", marginTop: 4, fontSize: 13, fontWeight: "900" },
   quickActions: { flexDirection: "row", gap: 8, flexWrap: "wrap" },
+  dashboardHeroRow: { flexDirection: "row", gap: 14, alignItems: "stretch", marginBottom: 14 },
+  balancePanel: { flex: 1.6, padding: 18, borderWidth: 1, borderColor: "#d8dfdc", borderRadius: 8, backgroundColor: "#fff", gap: 10 },
+  budgetActionPanel: { width: 220, padding: 16, borderWidth: 1, borderColor: "#d8dfdc", borderRadius: 8, backgroundColor: "#fff", gap: 10, justifyContent: "center" },
+  periodPickerRow: { alignSelf: "flex-end", minWidth: 160, marginBottom: 4, zIndex: 40 },
   fullWidth: { width: "100%" },
   panel: { flex: 1, padding: 16, borderWidth: 1, borderColor: "#d8dfdc", borderRadius: 8, backgroundColor: "#fff", marginBottom: 14, overflow: "visible" },
   panelHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
