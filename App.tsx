@@ -112,6 +112,7 @@ export default function App() {
   const [booting, setBooting] = useState(true);
   const [notice, setNotice] = useState("");
   const [authMode, setAuthMode] = useState<AuthMode>("signin");
+  const [authBusy, setAuthBusy] = useState(false);
   const [activeView, setActiveView] = useState<ViewName>("dashboard");
   const [user, setUser] = useState<User | LocalUser | null>(null);
   const [localState, setLocalState] = useState<LocalState>(blankLocalState);
@@ -119,7 +120,7 @@ export default function App() {
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [editingAccountId, setEditingAccountId] = useState<string | null>(null);
 
-  const [authForm, setAuthForm] = useState({ name: "", email: "", password: "" });
+  const [authForm, setAuthForm] = useState({ name: "", email: "", password: "", confirmPassword: "" });
   const [accountForm, setAccountForm] = useState({
     name: "Main wallet",
     type: "Cash",
@@ -229,17 +230,23 @@ export default function App() {
   }
 
   async function handleAuth() {
+    if (authBusy) return;
     const email = authForm.email.trim().toLowerCase();
     const password = authForm.password;
-    if (!email) return setNotice("Enter your email address.");
+    const validationMessage = validateAuthForm(email, password);
+    if (validationMessage) return setNotice(validationMessage);
 
+    setAuthBusy(true);
     try {
       if (supabase) {
         if (authMode === "signup") {
           const { data, error } = await supabase.auth.signUp({
             email,
             password,
-            options: { data: { full_name: authForm.name.trim() } }
+            options: {
+              data: { full_name: authForm.name.trim() },
+              emailRedirectTo: getAuthRedirectUrl()
+            }
           });
           if (error) throw error;
           if (data.user && data.session) await ensureFirstRemoteAccount(data.user.id);
@@ -253,7 +260,7 @@ export default function App() {
           }
           setNotice("Signed in.");
         } else {
-          const { error } = await supabase.auth.resetPasswordForEmail(email);
+          const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: getAuthRedirectUrl() });
           if (error) throw error;
           setNotice("Password reset email sent.");
         }
@@ -262,6 +269,8 @@ export default function App() {
       }
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Authentication failed.");
+    } finally {
+      setAuthBusy(false);
     }
   }
 
@@ -271,7 +280,6 @@ export default function App() {
       return;
     }
     if (authMode === "signup") {
-      if (!authForm.name.trim() || password.length < 8) return setNotice("Add your name and an 8 character password.");
       if (localState.users.some((item) => item.email === email)) return setNotice("An account already exists for this email.");
       const localUser = { id: newId("user"), name: authForm.name.trim(), email, password };
       const firstAccount = seedAccount(localUser.id);
@@ -296,6 +304,18 @@ export default function App() {
     setAccounts(next.accounts.filter((account) => account.userId === localUser.id));
     setExpenses(next.expenses.filter((expense) => expense.userId === localUser.id));
     setNotice("Signed in locally.");
+  }
+
+  function validateAuthForm(email: string, password: string) {
+    if (!email) return "Enter your email address.";
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return "Enter a valid email address.";
+    if (authMode === "reset") return "";
+    if (password.length < 8) return "Password must be at least 8 characters.";
+    if (authMode === "signup") {
+      if (!authForm.name.trim()) return "Enter your full name.";
+      if (password !== authForm.confirmPassword) return "Passwords do not match.";
+    }
+    return "";
   }
 
   async function signOut() {
@@ -454,9 +474,18 @@ export default function App() {
                 <TabButton key={mode} active={authMode === mode} label={modeLabel(mode)} onPress={() => setAuthMode(mode)} />
               ))}
             </View>
+            <View style={styles.authHeader}>
+              <Text style={styles.authTitle}>{authTitle(authMode)}</Text>
+              <Text style={styles.authHint}>{authHint(authMode)}</Text>
+            </View>
             <Notice text={notice || (supabase ? "Supabase backend enabled." : "Local demo mode. Add Supabase env vars for cloud auth and database.")} />
             {authMode === "signup" && (
-              <Field label="Full name" value={authForm.name} onChangeText={(name: string) => setAuthForm((current) => ({ ...current, name }))} />
+              <Field
+                label="Full name"
+                value={authForm.name}
+                onChangeText={(name: string) => setAuthForm((current) => ({ ...current, name }))}
+                autoComplete="name"
+              />
             )}
             <Field
               label="Email"
@@ -464,6 +493,8 @@ export default function App() {
               onChangeText={(email: string) => setAuthForm((current) => ({ ...current, email }))}
               keyboardType="email-address"
               autoCapitalize="none"
+              autoComplete="email"
+              textContentType="emailAddress"
             />
             {authMode !== "reset" && (
               <Field
@@ -471,9 +502,35 @@ export default function App() {
                 value={authForm.password}
                 onChangeText={(password: string) => setAuthForm((current) => ({ ...current, password }))}
                 secureTextEntry
+                autoComplete={authMode === "signup" ? "new-password" : "current-password"}
+                textContentType={authMode === "signup" ? "newPassword" : "password"}
+                onSubmitEditing={handleAuth}
               />
             )}
-            <PrimaryButton label={authMode === "reset" ? "Send reset email" : authMode === "signup" ? "Create account" : "Sign in"} onPress={handleAuth} />
+            {authMode === "signup" && (
+              <Field
+                label="Confirm password"
+                value={authForm.confirmPassword}
+                onChangeText={(confirmPassword: string) => setAuthForm((current) => ({ ...current, confirmPassword }))}
+                secureTextEntry
+                autoComplete="new-password"
+                textContentType="newPassword"
+                onSubmitEditing={handleAuth}
+              />
+            )}
+            {authMode === "signup" && <Text style={styles.passwordHint}>Use at least 8 characters.</Text>}
+            <PrimaryButton label={authButtonLabel(authMode, authBusy)} onPress={handleAuth} disabled={authBusy} />
+            <View style={styles.authSwitchRow}>
+              <Text style={styles.authSwitchText}>{authSwitchCopy(authMode)}</Text>
+              <Pressable onPress={() => setAuthMode(authMode === "signin" ? "signup" : "signin")}>
+                <Text style={styles.authSwitchLink}>{authMode === "signin" ? "Create account" : "Sign in"}</Text>
+              </Pressable>
+            </View>
+            {authMode === "signin" && (
+              <Pressable onPress={() => setAuthMode("reset")}>
+                <Text style={styles.forgotLink}>Forgot your password?</Text>
+              </Pressable>
+            )}
           </View>
         </ScrollView>
       </SafeAreaView>
@@ -678,10 +735,10 @@ function ChoiceRow({ label, options, labels = {}, value, onChange }: { label: st
   );
 }
 
-function PrimaryButton({ label, onPress }: { label: string; onPress?: () => void }) {
+function PrimaryButton({ label, disabled, onPress }: { label: string; disabled?: boolean; onPress?: () => void }) {
   return (
-    <Pressable onPress={onPress} style={styles.primaryButton}>
-      <Text style={styles.primaryButtonText}>{label}</Text>
+    <Pressable disabled={disabled} onPress={onPress} style={[styles.primaryButton, disabled && styles.buttonDisabled]}>
+      <Text style={[styles.primaryButtonText, disabled && styles.buttonDisabledText]}>{label}</Text>
     </Pressable>
   );
 }
@@ -792,6 +849,36 @@ function modeLabel(mode: AuthMode) {
   if (mode === "signin") return "Sign in";
   if (mode === "signup") return "Create";
   return "Reset";
+}
+
+function authTitle(mode: AuthMode) {
+  if (mode === "signup") return "Create your account";
+  if (mode === "reset") return "Reset your password";
+  return "Sign in to My Money";
+}
+
+function authHint(mode: AuthMode) {
+  if (mode === "signup") return "Use your email and a secure password to protect your financial workspace.";
+  if (mode === "reset") return "Enter your account email and we will send a password reset link.";
+  return "Access your accounts, expenses, and analytics with your saved credentials.";
+}
+
+function authButtonLabel(mode: AuthMode, busy: boolean) {
+  if (busy) return "Please wait...";
+  if (mode === "reset") return "Send reset link";
+  if (mode === "signup") return "Create account";
+  return "Sign in";
+}
+
+function authSwitchCopy(mode: AuthMode) {
+  if (mode === "signup") return "Already have an account?";
+  if (mode === "reset") return "Remembered your password?";
+  return "New to My Money?";
+}
+
+function getAuthRedirectUrl() {
+  if (Platform.OS === "web" && typeof window !== "undefined") return window.location.origin;
+  return "mymoney://auth";
 }
 
 function titleFor(view: ViewName) {
@@ -926,6 +1013,14 @@ const styles = StyleSheet.create({
   heroTitle: { color: "#13201d", fontSize: 56, lineHeight: 58, fontWeight: "900" },
   heroText: { color: "#66736f", marginTop: 14, fontSize: 18, lineHeight: 28 },
   authCard: { width: "100%", maxWidth: 440, padding: 18, gap: 14, backgroundColor: "#fff", borderColor: "#d8dfdc", borderWidth: 1, borderRadius: 8 },
+  authHeader: { gap: 6 },
+  authTitle: { color: "#13201d", fontSize: 22, lineHeight: 28, fontWeight: "900" },
+  authHint: { color: "#66736f", lineHeight: 21, fontWeight: "700" },
+  passwordHint: { color: "#66736f", marginTop: -6, fontSize: 12, fontWeight: "700" },
+  authSwitchRow: { flexDirection: "row", gap: 6, alignItems: "center", justifyContent: "center", flexWrap: "wrap" },
+  authSwitchText: { color: "#66736f", fontWeight: "700" },
+  authSwitchLink: { color: "#0f6f5f", fontWeight: "900" },
+  forgotLink: { color: "#0f6f5f", textAlign: "center", fontWeight: "900" },
   tabs: { flexDirection: "row", gap: 6, padding: 4, borderRadius: 8, backgroundColor: "#edf1ee" },
   tabButton: { flex: 1, minHeight: 42, borderRadius: 6, alignItems: "center", justifyContent: "center" },
   tabButtonActive: { backgroundColor: "#0f6f5f" },
@@ -936,6 +1031,8 @@ const styles = StyleSheet.create({
   input: { minHeight: 44, borderWidth: 1, borderColor: "#d8dfdc", borderRadius: 7, backgroundColor: "#fff", color: "#13201d", paddingHorizontal: 12 },
   primaryButton: { minHeight: 44, borderRadius: 7, backgroundColor: "#0f6f5f", alignItems: "center", justifyContent: "center", paddingHorizontal: 16 },
   primaryButtonText: { color: "#fff", fontWeight: "900" },
+  buttonDisabled: { backgroundColor: "#a8b5b1" },
+  buttonDisabledText: { color: "#eef3f1" },
   secondaryButton: { minHeight: 42, borderRadius: 7, backgroundColor: "#e8eeeb", alignItems: "center", justifyContent: "center", paddingHorizontal: 14 },
   secondaryButtonText: { color: "#13201d", fontWeight: "900" },
   notice: { minHeight: 20, color: "#0d4f45", fontWeight: "800", marginBottom: 8 },
